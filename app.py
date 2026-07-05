@@ -43,7 +43,7 @@ if uploaded_file is not None:
             # Step B: Replace the "T" separator with a space if it exists
             df[col] = df[col].str.replace('T', ' ', regex=False)
             # Step C: Strip trailing sub-seconds/nanoseconds
-            df[col] = df[col].apply(lambda x: x.split('.')[0] if '.' in x else x)
+            df[col] = df[col].apply(lambda x: str(x).split('.')[0] if '.' in str(x) else str(x))
             # Step D: Parse safely into true system dates
             df[col] = pd.to_datetime(df[col], errors='coerce')
 
