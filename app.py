@@ -137,14 +137,23 @@ if uploaded_file is not None:
     def apply_neon_styling(val, color_hex):
         return f'background-color: {color_hex}; color: black; font-weight: bold'
 
-    # 07. Missing ACK Validation Table
-    st.markdown("#### 🚨 07. Missing Folder Acknowledgements")
-    if folder_id_col in df.columns and ack_date_col in df.columns and buyer_col in df.columns:
-        missing_ack = df[df[ack_date_col].isna()][[folder_id_col, buyer_col]].drop_duplicates()
-        if not missing_ack.empty:
-            st.dataframe(missing_ack.style.map(lambda v: apply_neon_styling(v, '#ffcccc'), subset=[folder_id_col, buyer_col]), use_container_width=True)
-        else:
-            st.success("Perfect! Zero missing folder acknowledgements found.")
+    st.markdown("### 🚨 07. Missing Folder Acknowledgements")
+
+# 1. Filter or select the relevant missing folder data
+missing_ack_df = df[# ... your existing filter condition for missing acknowledgements ...]
+
+# 2. Specify the columns to display (including the new ones)
+columns_to_show = ['FOLDER#', 'BUYER', 'BILL_TO_CLIENT', 'COMMITTED_BY']
+
+# 3. Filter down to existing columns to avoid KeyErrors if a column is missing in the file
+available_cols = [col for col in columns_to_show if col in missing_ack_df.columns]
+
+# 4. Render the styled table without the default index numbers
+st.dataframe(
+    missing_ack_df[available_cols],
+    hide_index=True,
+    use_container_width=True
+)
 
     # 08. Commits Breach Table (> 3 Hours) Neon Green
     st.markdown("#### 🟢 08. Commits Breaching SLA (> 3 Hours Target)")
