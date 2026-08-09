@@ -156,13 +156,13 @@ st.dataframe(
 )
 
     # 08. Commits Breach Table (> 3 Hours) Neon Green
-    st.markdown("#### 🟢 08. Commits Breaching SLA (> 3 Hours Target)")
-    if 'commit_gap_hours' in df.columns and folder_id_col in df.columns and buyer_col in df.columns:
-        breach_3h = df[df['commit_gap_hours'] > 3][[folder_id_col, buyer_col]].drop_duplicates()
-        if not breach_3h.empty:
-            st.dataframe(breach_3h.style.map(lambda v: apply_neon_styling(v, '#39FF14'), subset=[folder_id_col, buyer_col]), use_container_width=True)
-        else:
-            st.success("Great job! Zero folders breached the 3-hour commitment SLA.")
+st.markdown("#### 🟢 08. Commits Breaching SLA (> 3 Hours Target)")
+if 'commit_gap_hours' in df.columns and folder_id_col in df.columns and buyer_col in df.columns:
+    breach_3h = df[df['commit_gap_hours'] > 3][[folder_id_col, buyer_col]].drop_duplicates()
+    if not breach_3h.empty:
+        st.dataframe(breach_3h.style.map(lambda v: apply_neon_styling(v, '#39FF14'), subset=[folder_id_col, buyer_col]), use_container_width=True)
+    else:
+        st.success("Great job! Zero folders breached the 3-hour commitment SLA.")
 
     # 09. ACK Breach Table (> 2 Hours) Neon Orange
     st.markdown("#### 🟠 09. Acknowledgements Breaching SLA (> 2 Hours Target)")
