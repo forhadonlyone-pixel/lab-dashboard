@@ -139,16 +139,16 @@ if uploaded_file is not None:
 
     st.markdown("### 🚨 07. Missing Folder Acknowledgements")
 
-# 1. Filter or select the relevant missing folder data
-missing_ack_df = df[# ... your existing filter condition for missing acknowledgements ...]
+# 1. Filter data for missing acknowledgements
+missing_ack_df = df[df['ACKNOWLEDGEMENT_DATE'].isna()]
 
-# 2. Specify the columns to display (including the new ones)
+# 2. Specify the columns to display
 columns_to_show = ['FOLDER#', 'BUYER', 'BILL_TO_CLIENT', 'COMMITTED_BY']
 
-# 3. Filter down to existing columns to avoid KeyErrors if a column is missing in the file
+# 3. Filter down to existing columns to avoid KeyErrors
 available_cols = [col for col in columns_to_show if col in missing_ack_df.columns]
 
-# 4. Render the styled table without the default index numbers
+# 4. Render the table
 st.dataframe(
     missing_ack_df[available_cols],
     hide_index=True,
