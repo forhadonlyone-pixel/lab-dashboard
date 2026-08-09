@@ -137,21 +137,16 @@ if uploaded_file is not None:
     def apply_neon_styling(val, color_hex):
         return f'background-color: {color_hex}; color: black; font-weight: bold'
 
-   st.markdown("### 🚨 07. Missing Folder Acknowledgements")
-
-# Ensure df exists before filtering
-if 'df' in locals() and df is not None:
-    # 1. Check for missing acknowledgement column safely
-    if 'ACKNOWLEDGEMENT_DATE' in df.columns:
-        missing_ack_df = df[df['ACKNOWLEDGEMENT_DATE'].isna()]
+    # 07. Missing Folder Acknowledgements
+    st.markdown("### 🚨 07. Missing Folder Acknowledgements")
+    if ack_date_col in df.columns:
+        missing_ack_df = df[df[ack_date_col].isna()]
     else:
         missing_ack_df = df.copy()
 
-    # 2. Specify columns to show
     columns_to_show = ['FOLDER#', 'BUYER', 'BILL_TO_CLIENT', 'COMMITTED_BY']
     available_cols = [col for col in columns_to_show if col in missing_ack_df.columns]
 
-    # 3. Render table
     st.dataframe(
         missing_ack_df[available_cols],
         hide_index=True,
@@ -159,13 +154,13 @@ if 'df' in locals() and df is not None:
     )
 
     # 08. Commits Breach Table (> 3 Hours) Neon Green
-st.markdown("#### 🟢 08. Commits Breaching SLA (> 3 Hours Target)")
-if 'commit_gap_hours' in df.columns and folder_id_col in df.columns and buyer_col in df.columns:
-    breach_3h = df[df['commit_gap_hours'] > 3][[folder_id_col, buyer_col]].drop_duplicates()
-    if not breach_3h.empty:
-        st.dataframe(breach_3h.style.map(lambda v: apply_neon_styling(v, '#39FF14'), subset=[folder_id_col, buyer_col]), use_container_width=True)
-    else:
-        st.success("Great job! Zero folders breached the 3-hour commitment SLA.")
+    st.markdown("#### 🟢 08. Commits Breaching SLA (> 3 Hours Target)")
+    if 'commit_gap_hours' in df.columns and folder_id_col in df.columns and buyer_col in df.columns:
+        breach_3h = df[df['commit_gap_hours'] > 3][[folder_id_col, buyer_col]].drop_duplicates()
+        if not breach_3h.empty:
+            st.dataframe(breach_3h.style.map(lambda v: apply_neon_styling(v, '#39FF14'), subset=[folder_id_col, buyer_col]), use_container_width=True)
+        else:
+            st.success("Great job! Zero folders breached the 3-hour commitment SLA.")
 
     # 09. ACK Breach Table (> 2 Hours) Neon Orange
     st.markdown("#### 🟠 09. Acknowledgements Breaching SLA (> 2 Hours Target)")
