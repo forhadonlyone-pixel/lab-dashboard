@@ -137,23 +137,26 @@ if uploaded_file is not None:
     def apply_neon_styling(val, color_hex):
         return f'background-color: {color_hex}; color: black; font-weight: bold'
 
-    st.markdown("### 🚨 07. Missing Folder Acknowledgements")
+   st.markdown("### 🚨 07. Missing Folder Acknowledgements")
 
-# 1. Filter data for missing acknowledgements
-missing_ack_df = df[df['ACKNOWLEDGEMENT_DATE'].isna()]
+# Ensure df exists before filtering
+if 'df' in locals() and df is not None:
+    # 1. Check for missing acknowledgement column safely
+    if 'ACKNOWLEDGEMENT_DATE' in df.columns:
+        missing_ack_df = df[df['ACKNOWLEDGEMENT_DATE'].isna()]
+    else:
+        missing_ack_df = df.copy()
 
-# 2. Specify the columns to display
-columns_to_show = ['FOLDER#', 'BUYER', 'BILL_TO_CLIENT', 'COMMITTED_BY']
+    # 2. Specify columns to show
+    columns_to_show = ['FOLDER#', 'BUYER', 'BILL_TO_CLIENT', 'COMMITTED_BY']
+    available_cols = [col for col in columns_to_show if col in missing_ack_df.columns]
 
-# 3. Filter down to existing columns to avoid KeyErrors
-available_cols = [col for col in columns_to_show if col in missing_ack_df.columns]
-
-# 4. Render the table
-st.dataframe(
-    missing_ack_df[available_cols],
-    hide_index=True,
-    use_container_width=True
-)
+    # 3. Render table
+    st.dataframe(
+        missing_ack_df[available_cols],
+        hide_index=True,
+        use_container_width=True
+    )
 
     # 08. Commits Breach Table (> 3 Hours) Neon Green
 st.markdown("#### 🟢 08. Commits Breaching SLA (> 3 Hours Target)")
