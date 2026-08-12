@@ -6,6 +6,42 @@ import numpy as np
 st.set_page_config(page_title="Lab Operations Master Dashboard", layout="wide")
 st.title("🔬 Laboratory Operations Master Performance Dashboard")
 
+# ---------------------------------------------------------
+# CACHED DATA LOAD & CLEANING (Runs ONCE per file upload)
+# ---------------------------------------------------------
+@st.cache_data(show_spinner="⚡ Processing data and parsing dates...")
+def load_and_preprocess_data(file):
+    if file.name.endswith('.csv'):
+        df_raw = pd.read_csv(file)
+    else:
+        df_raw = pd.read_excel(file)
+
+    # Column Schema Mappings
+    folder_date_col = 'FOLDER_RECEIVE_DATE'
+    ack_date_col = 'ACKNOWLEDGEMENT_DATE'
+    commit_date_col = 'FOLDER_COMMITTED_DATE'
+
+    # Fast Date Parsing (Vectorized)
+    for col in [folder_date_col, ack_date_col, commit_date_col]:
+        if col in df_raw.columns:
+            # Clean string T/decimals fast
+            s = df_raw[col].fillna("").astype(str).str.replace('T', ' ', regex=False)
+            s = s.str.split('.').str[0]
+            df_raw[col] = pd.to_datetime(s, errors='coerce')
+
+    # Committed Date Only for daily grouping
+    if commit_date_col in df_raw.columns:
+        df_raw['COMMIT_DATE_ONLY'] = df_raw[commit_date_col].dt.date
+
+    # Operational gaps in hours
+    if commit_date_col in df_raw.columns and folder_date_col in df_raw.columns:
+        df_raw['commit_gap_hours'] = (df_raw[commit_date_col] - df_raw[folder_date_col]).dt.total_seconds() / 3600.0
+    if ack_date_col in df_raw.columns and folder_date_col in df_raw.columns:
+        df_raw['ack_gap_hours'] = (df_raw[ack_date_col] - df_raw[folder_date_col]).dt.total_seconds() / 3600.0
+
+    return df_raw
+
+
 # File uploader widget
 uploaded_file = st.file_uploader(
     "📂 Upload your daily Lab Excel/CSV file (Accepts any filename format like 05/07/26)", 
@@ -14,15 +50,12 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file is not None:
     try:
-        if uploaded_file.name.endswith('.csv'):
-            df_raw = pd.read_csv(uploaded_file)
-        else:
-            df_raw = pd.read_excel(uploaded_file)
+        df_raw = load_and_preprocess_data(uploaded_file)
     except Exception as e:
         st.error(f"Error reading file: {e}")
         st.stop()
 
-    # Column Schema Mappings
+    # Column Mappings
     folder_date_col = 'FOLDER_RECEIVE_DATE'
     ack_date_col = 'ACKNOWLEDGEMENT_DATE'
     commit_date_col = 'FOLDER_COMMITTED_DATE'
@@ -33,34 +66,14 @@ if uploaded_file is not None:
     reg_group_col = 'REG_GROUP'
     lab_type_col = 'TEST_GROUP'
     bill_client_col = 'BILL_TO_CLIENT'
-    style_col = 'STYLE_NO'
-    color_col = 'SAMPLE_COLOUR'
     folder_id_col = 'FOLDER#'
     sample_id_col = 'SAMPLE_NUMBER'
     charges_col = 'TOTAL_CHARGES'
 
-    # Clean and convert Date columns safely
-    for col in [folder_date_col, ack_date_col, commit_date_col]:
-        if col in df_raw.columns:
-            df_raw[col] = df_raw[col].fillna("").astype(str)
-            df_raw[col] = df_raw[col].str.replace('T', ' ', regex=False)
-            df_raw[col] = df_raw[col].apply(lambda x: str(x).split('.')[0] if '.' in str(x) else str(x))
-            df_raw[col] = pd.to_datetime(df_raw[col], errors='coerce')
-
-    # Extract clean Committed Date only column for daily grouping
-    if commit_date_col in df_raw.columns:
-        df_raw['COMMIT_DATE_ONLY'] = df_raw[commit_date_col].dt.date
-
-    # Operational gaps in hours
-    if commit_date_col in df_raw.columns and folder_date_col in df_raw.columns:
-        df_raw['commit_gap_hours'] = (df_raw[commit_date_col] - df_raw[folder_date_col]).dt.total_seconds() / 3600
-    if ack_date_col in df_raw.columns and folder_date_col in df_raw.columns:
-        df_raw['ack_gap_hours'] = (df_raw[ack_date_col] - df_raw[folder_date_col]).dt.total_seconds() / 3600
-
     # SIDEBAR FILTERS
     st.sidebar.header("🎛️ Master Filters")
 
-    # Date Range Filter based on FOLDER_COMMITTED_DATE
+    # Date Range Filter
     df_filtered = df_raw.copy()
     if commit_date_col in df_filtered.columns and not df_filtered[commit_date_col].dropna().empty:
         min_date = df_filtered[commit_date_col].min().date()
@@ -80,18 +93,18 @@ if uploaded_file is not None:
 
     # REG_GROUP Filter
     if reg_group_col in df_filtered.columns:
-        groups = ['All Groups'] + sorted(df_filtered[reg_group_col].dropna().unique().tolist())
+        groups = ['All Groups'] + sorted(df_filtered[reg_group_col].dropna().astype(str).unique().tolist())
         selected_group = st.sidebar.selectbox("Filter by REG_GROUP (Column O)", options=groups)
         if selected_group != 'All Groups':
             df_filtered = df_filtered[df_filtered[reg_group_col] == selected_group]
 
-    # DAY-WISE DATE CARDS SELECTOR IN SIDEBAR (Based on FOLDER_COMMITTED_DATE)
+    # DAY-WISE DATE CARDS SELECTOR
     st.sidebar.subheader("📅 Individual Committed Day Selector")
     unique_commit_dates = sorted(df_filtered['COMMIT_DATE_ONLY'].dropna().unique().tolist()) if 'COMMIT_DATE_ONLY' in df_filtered.columns else []
     date_options = ['All Combined Days'] + [str(d) for d in unique_commit_dates]
     selected_date_card = st.sidebar.radio("Select Specific Committed Day to Analyze:", options=date_options)
 
-    # Filter main dataset based on Sidebar Radio Selection
+    # Filter active dataset based on selection
     if selected_date_card != 'All Combined Days':
         df_active_view = df_filtered[df_filtered['COMMIT_DATE_ONLY'].astype(str) == selected_date_card]
     else:
@@ -100,8 +113,7 @@ if uploaded_file is not None:
     # NOT ELIGIBLE FOR SAMPLE ACKNOWLEDGEMENT CONFIGURATION
     st.sidebar.subheader("🚫 Not Eligible for Acknowledgement List")
     
-    # 1. Buyers excluded entirely
-    all_buyers_list = sorted(df_filtered[buyer_col].dropna().unique().tolist()) if buyer_col in df_filtered.columns else []
+    all_buyers_list = sorted(df_filtered[buyer_col].dropna().astype(str).unique().tolist()) if buyer_col in df_filtered.columns else []
     default_excluded_buyers = [b for b in all_buyers_list if 'siplec' in str(b).lower()]
     exclude_buyers = st.sidebar.multiselect(
         "Exclude Buyer (Entirely)", 
@@ -109,7 +121,6 @@ if uploaded_file is not None:
         default=default_excluded_buyers
     )
 
-    # 2. Specific Buyer-Client Combinations (e.g. H&M specific clients)
     hm_clients_default = [
         "FAKIR KNITWEARS LTD.",
         "FAKIR APPARELS LTD",
@@ -117,7 +128,7 @@ if uploaded_file is not None:
         "KC LINGERIE LTD. (KNIT CONCERN GROUP)",
         "SAIHAM KNIT COMPOSITE LTD"
     ]
-    all_clients_list = sorted(df_filtered[bill_client_col].dropna().unique().tolist()) if bill_client_col in df_filtered.columns else []
+    all_clients_list = sorted(df_filtered[bill_client_col].dropna().astype(str).unique().tolist()) if bill_client_col in df_filtered.columns else []
     exclude_hm_clients = st.sidebar.multiselect(
         "H&M Non-Eligible Bill To Clients",
         options=all_clients_list,
@@ -128,37 +139,33 @@ if uploaded_file is not None:
     st.sidebar.subheader("💰 Financial Intersect Filters")
     filter_buyer = st.sidebar.multiselect(
         "Buyer (Column D)", 
-        options=sorted(df_filtered[buyer_col].dropna().unique().tolist()) if buyer_col in df_filtered.columns else []
+        options=all_buyers_list
     )
     filter_service = st.sidebar.multiselect(
         "Service Level (Column F)", 
-        options=sorted(df_filtered[service_col].dropna().unique().tolist()) if service_col in df_filtered.columns else []
+        options=sorted(df_filtered[service_col].dropna().astype(str).unique().tolist()) if service_col in df_filtered.columns else []
     )
     filter_client = st.sidebar.multiselect(
         "Bill To Client (Column AF)", 
-        options=sorted(df_filtered[bill_client_col].dropna().unique().tolist()) if bill_client_col in df_filtered.columns else []
+        options=all_clients_list
     )
 
     # HELPER FUNCTION: FILTER NON-ELIGIBLE ACKNOWLEDGEMENTS
     def apply_ack_eligibility_filter(df_in):
-        df_out = df_in.copy()
-        
-        # Exclude buyers configured for total exclusion
+        df_out = df_in
         if exclude_buyers and buyer_col in df_out.columns:
             df_out = df_out[~df_out[buyer_col].isin(exclude_buyers)]
             
-        # Exclude specific H&M clients
         if exclude_hm_clients and buyer_col in df_out.columns and bill_client_col in df_out.columns:
             hm_mask = (df_out[buyer_col].astype(str).str.upper().str.contains("H&M")) & (df_out[bill_client_col].isin(exclude_hm_clients))
             df_out = df_out[~hm_mask]
             
         return df_out
 
-    # MAIN RENDER FUNCTION FOR A GIVEN DATAFRAME VIEW
+    # MAIN RENDER FUNCTION
     def render_dashboard(df, date_label):
         st.markdown(f"## 📅 Operating Data View (Committed Date): **{date_label}**")
 
-        # Apply eligibility matrix to acknowledgement dataset
         ack_filtered_df = apply_ack_eligibility_filter(df)
 
         finance_mask = pd.Series(True, index=df.index)
@@ -237,38 +244,35 @@ if uploaded_file is not None:
             if folder_id_col in df.columns:
                 st.metric("📁 06. Unique Folders Committed", f"{df[folder_id_col].nunique():,} Folders")
 
-        # PERSON-WISE PERFORMANCE DETAILED PANEL
+        # FAST VECTORIZED STAFF PERFORMANCE MATRIX
         st.markdown("---")
         st.subheader("👤 Staff Performance & SLA Compliance Matrix")
         
         if comm_by_col in df.columns and folder_id_col in df.columns:
-            person_stats = []
-            all_persons = sorted(list(set(df[comm_by_col].dropna().unique()).union(set(df[ack_by_col].dropna().unique() if ack_by_col in df.columns else []))))
+            # Vectorized Aggregations
+            comm_grp = df.groupby(comm_by_col).agg(
+                Total_Folders=(folder_id_col, 'nunique'),
+                Commit_3h=(folder_id_col, lambda s: df.loc[s.index].query("commit_gap_hours <= 3")[folder_id_col].nunique()),
+                Buyers=(buyer_col, lambda s: ", ".join(s.dropna().unique()))
+            ).reset_index()
 
-            for person in all_persons:
-                person_df_comm = df[df[comm_by_col] == person]
-                person_df_ack = ack_filtered_df[ack_filtered_df[ack_by_col] == person] if ack_by_col in ack_filtered_df.columns else pd.DataFrame()
+            if ack_by_col in ack_filtered_df.columns:
+                ack_grp = ack_filtered_df.query("ack_gap_hours <= 2").groupby(ack_by_col)[folder_id_col].nunique().reset_index()
+                ack_grp.columns = [comm_by_col, "Folders Acknowledged (≤ 2h)"]
+                summary_matrix = pd.merge(comm_grp, ack_grp, on=comm_by_col, how='left').fillna(0)
+            else:
+                summary_matrix = comm_grp
+                summary_matrix["Folders Acknowledged (≤ 2h)"] = 0
 
-                buyers_handled = ", ".join(person_df_comm[buyer_col].dropna().unique().tolist()) if buyer_col in person_df_comm.columns else "N/A"
-                buyers_handled = buyers_handled if buyers_handled else "N/A"
-
-                total_folders = person_df_comm[folder_id_col].nunique()
-                commit_3h = person_df_comm[person_df_comm['commit_gap_hours'] <= 3][folder_id_col].nunique() if 'commit_gap_hours' in person_df_comm.columns else 0
-                commit_sla_pct = f"{(commit_3h / total_folders * 100):.1f}%" if total_folders > 0 else "0.0%"
-
-                ack_2h = person_df_ack[person_df_ack['ack_gap_hours'] <= 2][folder_id_col].nunique() if ('ack_gap_hours' in person_df_ack.columns and not person_df_ack.empty) else 0
-
-                person_stats.append({
-                    "Person Name": person,
-                    "Associated Buyer(s)": buyers_handled,
-                    "Total Folders Actioned": total_folders,
-                    "Folders Committed (≤ 3h)": commit_3h,
-                    "Commit SLA Compliance": commit_sla_pct,
-                    "Folders Acknowledged (≤ 2h)": ack_2h
-                })
-
-            person_summary_df = pd.DataFrame(person_stats)
-            st.dataframe(person_summary_df, use_container_width=True, hide_index=True)
+            summary_matrix["Commit SLA Compliance"] = (summary_matrix["Commit_3h"] / summary_matrix["Total_Folders"] * 100).round(1).astype(str) + "%"
+            
+            summary_matrix.columns = [
+                "Person Name", "Total Folders Actioned", "Folders Committed (≤ 3h)", 
+                "Associated Buyer(s)", "Folders Acknowledged (≤ 2h)", "Commit SLA Compliance"
+            ]
+            
+            ordered_cols = ["Person Name", "Associated Buyer(s)", "Total Folders Actioned", "Folders Committed (≤ 3h)", "Commit SLA Compliance", "Folders Acknowledged (≤ 2h)"]
+            st.dataframe(summary_matrix[ordered_cols], use_container_width=True, hide_index=True)
 
         # Financial Segment Analysis
         st.markdown("---")
