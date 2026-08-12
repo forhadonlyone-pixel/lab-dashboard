@@ -91,15 +91,31 @@ if uploaded_file is not None:
     date_options = ['All Combined Days'] + [str(d) for d in unique_commit_dates]
     selected_date_card = st.sidebar.radio("Select Specific Committed Day to Analyze:", options=date_options)
 
-    # Exclude Buyers/Clients from ACK ≤ 2h Metrics
-    st.sidebar.subheader("🚫 Exclude Buyers/Clients from ACK ≤ 2h")
+    # NOT ELIGIBLE FOR SAMPLE ACKNOWLEDGEMENT CONFIGURATION
+    st.sidebar.subheader("🚫 Not Eligible for Acknowledgement List")
+    
+    # 1. Buyers excluded entirely
+    all_buyers_list = sorted(df_filtered[buyer_col].dropna().unique().tolist()) if buyer_col in df_filtered.columns else []
+    default_excluded_buyers = [b for b in all_buyers_list if 'siplec' in str(b).lower()]
     exclude_buyers = st.sidebar.multiselect(
-        "Exclude Buyer(s)", 
-        options=sorted(df_filtered[buyer_col].dropna().unique().tolist()) if buyer_col in df_filtered.columns else []
+        "Exclude Buyer (Entirely)", 
+        options=all_buyers_list,
+        default=default_excluded_buyers
     )
-    exclude_clients = st.sidebar.multiselect(
-        "Exclude Bill To Client(s)", 
-        options=sorted(df_filtered[bill_client_col].dropna().unique().tolist()) if bill_client_col in df_filtered.columns else []
+
+    # 2. Specific Buyer-Client Combinations (e.g. H&M specific clients)
+    hm_clients_default = [
+        "FAKIR KNITWEARS LTD.",
+        "FAKIR APPARELS LTD",
+        "FLAMINGO FASHIONS LTD",
+        "KC LINGERIE LTD. (KNIT CONCERN GROUP)",
+        "SAIHAM KNIT COMPOSITE LTD"
+    ]
+    all_clients_list = sorted(df_filtered[bill_client_col].dropna().unique().tolist()) if bill_client_col in df_filtered.columns else []
+    exclude_hm_clients = st.sidebar.multiselect(
+        "H&M Non-Eligible Bill To Clients",
+        options=all_clients_list,
+        default=[c for c in hm_clients_default if c in all_clients_list]
     )
 
     # Financial Filters
@@ -117,15 +133,27 @@ if uploaded_file is not None:
         options=sorted(df_filtered[bill_client_col].dropna().unique().tolist()) if bill_client_col in df_filtered.columns else []
     )
 
+    # HELPER FUNCTION: FILTER NON-ELIGIBLE ACKNOWLEDGEMENTS
+    def apply_ack_eligibility_filter(df_in):
+        df_out = df_in.copy()
+        
+        # Exclude buyers configured for total exclusion (e.g., Siplec)
+        if exclude_buyers and buyer_col in df_out.columns:
+            df_out = df_out[~df_out[buyer_col].isin(exclude_buyers)]
+            
+        # Exclude specific H&M clients
+        if exclude_hm_clients and buyer_col in df_out.columns and bill_client_col in df_out.columns:
+            hm_mask = (df_out[buyer_col].astype(str).str.upper().str.contains("H&M")) & (df_out[bill_client_col].isin(exclude_hm_clients))
+            df_out = df_out[~hm_mask]
+            
+        return df_out
+
     # MAIN RENDER FUNCTION FOR A GIVEN DATAFRAME VIEW
     def render_dashboard(df, date_label):
         st.markdown(f"## 📅 Operating Data View (Committed Date): **{date_label}**")
 
-        ack_filtered_df = df.copy()
-        if exclude_buyers and buyer_col in ack_filtered_df.columns:
-            ack_filtered_df = ack_filtered_df[~ack_filtered_df[buyer_col].isin(exclude_buyers)]
-        if exclude_clients and bill_client_col in ack_filtered_df.columns:
-            ack_filtered_df = ack_filtered_df[~ack_filtered_df[bill_client_col].isin(exclude_clients)]
+        # Apply eligibility matrix to acknowledgement dataset
+        ack_filtered_df = apply_ack_eligibility_filter(df)
 
         finance_mask = pd.Series(True, index=df.index)
         if filter_buyer and buyer_col in df.columns:
@@ -213,7 +241,7 @@ if uploaded_file is not None:
 
             for person in all_persons:
                 person_df_comm = df[df[comm_by_col] == person]
-                person_df_ack = df[df[ack_by_col] == person] if ack_by_col in df.columns else pd.DataFrame()
+                person_df_ack = ack_filtered_df[ack_filtered_df[ack_by_col] == person] if ack_by_col in ack_filtered_df.columns else pd.DataFrame()
 
                 buyers_handled = ", ".join(person_df_comm[buyer_col].dropna().unique().tolist()) if buyer_col in person_df_comm.columns else "N/A"
                 buyers_handled = buyers_handled if buyers_handled else "N/A"
@@ -251,14 +279,20 @@ if uploaded_file is not None:
             return f'background-color: {color_hex}; color: black; font-weight: bold'
 
         st.markdown("### 🚨 07. Missing Folder Acknowledgements")
-        if ack_date_col in df.columns:
-            missing_ack_df = df[df[ack_date_col].isna()]
+        # Filter missing acknowledgements strictly after excluding non-eligible buyers/clients
+        if ack_date_col in ack_filtered_df.columns:
+            missing_ack_df = ack_filtered_df[ack_filtered_df[ack_date_col].isna()]
         else:
-            missing_ack_df = df.copy()
+            missing_ack_df = ack_filtered_df.copy()
 
         columns_to_show = [folder_id_col, buyer_col, bill_client_col, comm_by_col]
         available_cols = [col for col in columns_to_show if col in missing_ack_df.columns]
-        st.dataframe(missing_ack_df[available_cols], hide_index=True, use_container_width=True)
+        
+        missing_ack_unique = missing_ack_df[available_cols].drop_duplicates()
+        if not missing_ack_unique.empty:
+            st.dataframe(missing_ack_unique, hide_index=True, use_container_width=True)
+        else:
+            st.success("Zero missing folder acknowledgements for eligible buyers/clients.")
 
         st.markdown("#### 🟢 08. Commits Breaching SLA (> 3 Hours Target)")
         if 'commit_gap_hours' in df.columns and folder_id_col in df.columns and buyer_col in df.columns:
@@ -272,8 +306,8 @@ if uploaded_file is not None:
                 st.success("Zero folders breached the 3-hour commitment SLA.")
 
         st.markdown("#### 🟠 09. Acknowledgements Breaching SLA (> 2 Hours Target)")
-        if 'ack_gap_hours' in df.columns and folder_id_col in df.columns and buyer_col in df.columns:
-            breach_2h = df[df['ack_gap_hours'] > 2][[folder_id_col, buyer_col, ack_by_col if ack_by_col in df.columns else buyer_col]].drop_duplicates()
+        if 'ack_gap_hours' in ack_filtered_df.columns and folder_id_col in ack_filtered_df.columns and buyer_col in ack_filtered_df.columns:
+            breach_2h = ack_filtered_df[ack_filtered_df['ack_gap_hours'] > 2][[folder_id_col, buyer_col, ack_by_col if ack_by_col in ack_filtered_df.columns else buyer_col]].drop_duplicates()
             if not breach_2h.empty:
                 st.dataframe(
                     breach_2h.style.map(lambda v: apply_neon_styling(v, '#FF5F1F'), subset=[folder_id_col, buyer_col]), 
