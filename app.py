@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import datetime
 
 # 1. Page Configuration
 st.set_page_config(
@@ -125,9 +126,10 @@ def load_and_preprocess_data(file):
     folder_date_col = 'FOLDER_RECEIVE_DATE'
     ack_date_col = 'ACKNOWLEDGEMENT_DATE'
     commit_date_col = 'FOLDER_COMMITTED_DATE'
+    sample_rec_date_col = 'SAMPLE_RECEIVE_DATE'
 
     # Fast Vectorized Date Parsing
-    for col in [folder_date_col, ack_date_col, commit_date_col]:
+    for col in [folder_date_col, ack_date_col, commit_date_col, sample_rec_date_col]:
         if col in df.columns:
             s = df[col].fillna("").astype(str).str.replace('T', ' ', regex=False).str.split('.').str[0]
             df[col] = pd.to_datetime(s, errors='coerce')
@@ -135,7 +137,7 @@ def load_and_preprocess_data(file):
     if commit_date_col in df.columns:
         df['COMMIT_DATE_ONLY'] = df[commit_date_col].dt.date
 
-    # Pre-compute hours and SLA boolean flags instantly
+    # Pre-compute hours and SLA boolean flags
     if commit_date_col in df.columns and folder_date_col in df.columns:
         df['commit_gap_hours'] = (df[commit_date_col] - df[folder_date_col]).dt.total_seconds() / 3600.0
         df['is_commit_3h'] = df['commit_gap_hours'] <= 3.0
@@ -149,6 +151,12 @@ def load_and_preprocess_data(file):
     else:
         df['ack_gap_hours'] = np.nan
         df['is_ack_2h'] = False
+
+    # Extract Sample Receive Time for fast slicer filtering
+    if sample_rec_date_col in df.columns:
+        df['sample_rec_time'] = df[sample_rec_date_col].dt.time
+    else:
+        df['sample_rec_time'] = None
 
     # Pre-compute lab type flags
     lab_type_col = 'TEST_GROUP'
@@ -185,6 +193,7 @@ if uploaded_file is not None:
     folder_date_col = 'FOLDER_RECEIVE_DATE'
     ack_date_col = 'ACKNOWLEDGEMENT_DATE'
     commit_date_col = 'FOLDER_COMMITTED_DATE'
+    sample_rec_date_col = 'SAMPLE_RECEIVE_DATE'
     buyer_col = 'BUYER'
     service_col = 'SERVICE_LEVEL'
     comm_by_col = 'COMMITTED_BY'
@@ -235,6 +244,11 @@ if uploaded_file is not None:
         df_active_view = df_filtered
 
     st.sidebar.markdown("---")
+    st.sidebar.markdown("### ⏰ ACK SLA Time Cutoff Slicer")
+    enable_time_cutoff = st.sidebar.checkbox("Enable ACK Time Cutoff Filter", value=True)
+    ack_cutoff_time = st.sidebar.time_input("Exclude ACK SLA Before Time:", value=datetime.time(21, 0))
+
+    st.sidebar.markdown("---")
     st.sidebar.markdown("### 🚫 ACK Exclusions")
     all_buyers_list = sorted(df_filtered[buyer_col].dropna().astype(str).unique().tolist()) if buyer_col in df_filtered.columns else []
     default_excluded_buyers = [b for b in all_buyers_list if 'siplec' in str(b).lower()]
@@ -253,14 +267,22 @@ if uploaded_file is not None:
     filter_service = st.sidebar.multiselect("Service Level Filter", options=sorted(df_filtered[service_col].dropna().astype(str).unique().tolist()) if service_col in df_filtered.columns else [])
     filter_client = st.sidebar.multiselect("Client Filter", options=all_clients_list)
 
-    # Fast eligibility mask
+    # Fast eligibility mask including time cutoff
     def apply_ack_eligibility_filter(df_in):
         df_out = df_in
+        
+        # 1. Buyer & Client Exclusions
         if exclude_buyers and buyer_col in df_out.columns:
             df_out = df_out[~df_out[buyer_col].isin(exclude_buyers)]
         if exclude_hm_clients and buyer_col in df_out.columns and bill_client_col in df_out.columns:
             hm_mask = (df_out[buyer_col].astype(str).str.upper().str.contains("H&M")) & (df_out[bill_client_col].isin(exclude_hm_clients))
             df_out = df_out[~hm_mask]
+            
+        # 2. Time Cutoff Slicer (Exclude folders with SAMPLE_RECEIVE_DATE before selected time)
+        if enable_time_cutoff and 'sample_rec_time' in df_out.columns:
+            time_mask = df_out['sample_rec_time'].notna() & (df_out['sample_rec_time'] >= ack_cutoff_time)
+            df_out = df_out[time_mask]
+
         return df_out
 
     def render_dashboard(df, date_label):
@@ -293,7 +315,7 @@ if uploaded_file is not None:
             </div>
             """, unsafe_allow_html=True)
 
-        # C2: ACK SLA
+        # C2: ACK SLA (Uses Time Cutoff Filter)
         with c2:
             ack_total_samples = ack_filtered_df[sample_id_col].nunique() if sample_id_col in ack_filtered_df.columns else 0
             ack_under_2 = ack_filtered_df[ack_filtered_df['is_ack_2h']][sample_id_col].nunique() if sample_id_col in ack_filtered_df.columns else 0
@@ -327,7 +349,7 @@ if uploaded_file is not None:
             </div>
             """, unsafe_allow_html=True)
 
-        # C5: Sample Breakdown (Fast Vectorized Flags)
+        # C5: Sample Breakdown
         with c5:
             if sample_id_col in df.columns:
                 chem_only = df[df['has_chem'] & ~df['has_phys']][sample_id_col].nunique()
@@ -353,22 +375,19 @@ if uploaded_file is not None:
             </div>
             """, unsafe_allow_html=True)
 
-        # OPTIMIZED STAFF PERFORMANCE MATRIX
+        # STAFF PERFORMANCE MATRIX
         st.markdown("<div class='section-title'>👤 Staff Performance & SLA Compliance Matrix</div>", unsafe_allow_html=True)
         if comm_by_col in df.columns and folder_id_col in df.columns:
-            # 1. Total folders per person
             comm_grp = df.groupby(comm_by_col).agg(
                 Total_Folders=(folder_id_col, 'nunique'),
                 Buyers=(buyer_col, lambda s: ", ".join(s.dropna().unique()))
             ).reset_index()
 
-            # 2. Folders under 3h SLA per person
             commit_3h_grp = df[df['is_commit_3h']].groupby(comm_by_col)[folder_id_col].nunique().reset_index()
             commit_3h_grp.columns = [comm_by_col, 'Commit_3h']
 
             summary_matrix = pd.merge(comm_grp, commit_3h_grp, on=comm_by_col, how='left').fillna({'Commit_3h': 0})
 
-            # 3. Folders ACK under 2h SLA per person
             if ack_by_col in ack_filtered_df.columns:
                 ack_grp = ack_filtered_df[ack_filtered_df['is_ack_2h']].groupby(ack_by_col)[folder_id_col].nunique().reset_index()
                 ack_grp.columns = [comm_by_col, "Folders Acknowledged (≤ 2h)"]
@@ -446,7 +465,7 @@ if uploaded_file is not None:
         if not missing_ack_unique.empty:
             st.dataframe(missing_ack_unique, hide_index=True, use_container_width=True)
         else:
-            st.success("Zero missing folder acknowledgements for eligible buyers/clients.")
+            st.success("Zero missing folder acknowledgements for eligible buyers/clients/times.")
 
         st.markdown("##### 🟠 Commits Breaching SLA (> 3 Hours Target)")
         if 'commit_gap_hours' in df.columns and folder_id_col in df.columns and buyer_col in df.columns:
