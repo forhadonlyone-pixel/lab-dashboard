@@ -21,10 +21,9 @@ def load_and_preprocess_data(file):
     ack_date_col = 'ACKNOWLEDGEMENT_DATE'
     commit_date_col = 'FOLDER_COMMITTED_DATE'
 
-    # Fast Date Parsing (Vectorized)
+    # Fast Date Parsing
     for col in [folder_date_col, ack_date_col, commit_date_col]:
         if col in df_raw.columns:
-            # Clean string T/decimals fast
             s = df_raw[col].fillna("").astype(str).str.replace('T', ' ', regex=False)
             s = s.str.split('.').str[0]
             df_raw[col] = pd.to_datetime(s, errors='coerce')
@@ -68,7 +67,11 @@ if uploaded_file is not None:
     bill_client_col = 'BILL_TO_CLIENT'
     folder_id_col = 'FOLDER#'
     sample_id_col = 'SAMPLE_NUMBER'
-    charges_col = 'TOTAL_CHARGES'
+    
+    # Financial Columns (AY, AZ, BB)
+    currency_col = 'CURRENCY'        # AY
+    ex_rate_col = 'EXCHANGE_RATE'    # AZ
+    charges_col = 'TOTAL_CHARGES'    # BB
 
     # SIDEBAR FILTERS
     st.sidebar.header("🎛️ Master Filters")
@@ -244,12 +247,11 @@ if uploaded_file is not None:
             if folder_id_col in df.columns:
                 st.metric("📁 06. Unique Folders Committed", f"{df[folder_id_col].nunique():,} Folders")
 
-        # FAST VECTORIZED STAFF PERFORMANCE MATRIX
+        # STAFF PERFORMANCE MATRIX
         st.markdown("---")
         st.subheader("👤 Staff Performance & SLA Compliance Matrix")
         
         if comm_by_col in df.columns and folder_id_col in df.columns:
-            # Vectorized Aggregations
             comm_grp = df.groupby(comm_by_col).agg(
                 Total_Folders=(folder_id_col, 'nunique'),
                 Commit_3h=(folder_id_col, lambda s: df.loc[s.index].query("commit_gap_hours <= 3")[folder_id_col].nunique()),
@@ -274,12 +276,64 @@ if uploaded_file is not None:
             ordered_cols = ["Person Name", "Associated Buyer(s)", "Total Folders Actioned", "Folders Committed (≤ 3h)", "Commit SLA Compliance", "Folders Acknowledged (≤ 2h)"]
             st.dataframe(summary_matrix[ordered_cols], use_container_width=True, hide_index=True)
 
-        # Financial Segment Analysis
+        # 10. FINANCIAL SEGMENT ANALYSIS (EXCHANGE RATE & CURRENCY CALCULATIONS)
         st.markdown("---")
         st.subheader("💰 10. Financial Charge Segment Analysis")
-        if charges_col in finance_df.columns:
-            total_rev = pd.to_numeric(finance_df[charges_col], errors='coerce').sum()
-            st.metric(label="Total Cross-Filtered Financial Revenue", value=f"${total_rev:,.2f}")
+
+        if charges_col in finance_df.columns and folder_id_col in finance_df.columns:
+            # Drop duplicates by folder to avoid double counting charges repeated per sample
+            fin_cols = [folder_id_col, charges_col]
+            if currency_col in finance_df.columns:
+                fin_cols.append(currency_col)
+            if ex_rate_col in finance_df.columns:
+                fin_cols.append(ex_rate_col)
+
+            unique_folder_charges = finance_df[fin_cols].drop_duplicates(subset=[folder_id_col])
+
+            # Numeric conversion
+            unique_folder_charges[charges_col] = pd.to_numeric(unique_folder_charges[charges_col], errors='coerce').fillna(0)
+            
+            if ex_rate_col in unique_folder_charges.columns:
+                unique_folder_charges[ex_rate_col] = pd.to_numeric(unique_folder_charges[ex_rate_col], errors='coerce').fillna(1)
+                unique_folder_charges[ex_rate_col] = unique_folder_charges[ex_rate_col].replace(0, 1)
+            else:
+                unique_folder_charges[ex_rate_col] = 1.0
+
+            if currency_col in unique_folder_charges.columns:
+                unique_folder_charges[currency_col] = unique_folder_charges[currency_col].fillna("BDT").astype(str).str.upper()
+            else:
+                unique_folder_charges[currency_col] = "BDT"
+
+            # Calculate USD Amount: If BDT, divide by EXCHANGE_RATE. If USD, keep as is.
+            unique_folder_charges['CHARGES_USD'] = np.where(
+                unique_folder_charges[currency_col] == 'BDT',
+                unique_folder_charges[charges_col] / unique_folder_charges[ex_rate_col],
+                unique_folder_charges[charges_col]
+            )
+
+            # Calculate BDT Amount: If USD, multiply by EXCHANGE_RATE. If BDT, keep as is.
+            unique_folder_charges['CHARGES_BDT'] = np.where(
+                unique_folder_charges[currency_col] == 'USD',
+                unique_folder_charges[charges_col] * unique_folder_charges[ex_rate_col],
+                unique_folder_charges[charges_col]
+            )
+
+            total_usd = unique_folder_charges['CHARGES_USD'].sum()
+            total_bdt = unique_folder_charges['CHARGES_BDT'].sum()
+
+            f1, f2 = st.columns(2)
+            with f1:
+                st.metric(
+                    label="Total Financial Revenue (USD)", 
+                    value=f"${total_usd:,.2f}"
+                )
+            with f2:
+                st.metric(
+                    label="Total Financial Revenue (BDT)", 
+                    value=f"৳{total_bdt:,.2f}"
+                )
+        else:
+            st.info("Financial charge columns ('TOTAL_CHARGES', 'CURRENCY', 'EXCHANGE_RATE') missing from dataset.")
 
         # Exception Tables
         st.markdown("---")
