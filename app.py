@@ -91,6 +91,12 @@ if uploaded_file is not None:
     date_options = ['All Combined Days'] + [str(d) for d in unique_commit_dates]
     selected_date_card = st.sidebar.radio("Select Specific Committed Day to Analyze:", options=date_options)
 
+    # Filter main dataset based on Sidebar Radio Selection
+    if selected_date_card != 'All Combined Days':
+        df_active_view = df_filtered[df_filtered['COMMIT_DATE_ONLY'].astype(str) == selected_date_card]
+    else:
+        df_active_view = df_filtered.copy()
+
     # NOT ELIGIBLE FOR SAMPLE ACKNOWLEDGEMENT CONFIGURATION
     st.sidebar.subheader("🚫 Not Eligible for Acknowledgement List")
     
@@ -137,7 +143,7 @@ if uploaded_file is not None:
     def apply_ack_eligibility_filter(df_in):
         df_out = df_in.copy()
         
-        # Exclude buyers configured for total exclusion (e.g., Siplec)
+        # Exclude buyers configured for total exclusion
         if exclude_buyers and buyer_col in df_out.columns:
             df_out = df_out[~df_out[buyer_col].isin(exclude_buyers)]
             
@@ -279,7 +285,6 @@ if uploaded_file is not None:
             return f'background-color: {color_hex}; color: black; font-weight: bold'
 
         st.markdown("### 🚨 07. Missing Folder Acknowledgements")
-        # Filter missing acknowledgements strictly after excluding non-eligible buyers/clients
         if ack_date_col in ack_filtered_df.columns:
             missing_ack_df = ack_filtered_df[ack_filtered_df[ack_date_col].isna()]
         else:
@@ -316,22 +321,8 @@ if uploaded_file is not None:
             else:
                 st.success("Zero folders breached the 2-hour acknowledgement SLA.")
 
-    # DISPLAY DYNAMIC DAY TABS BASED ON FOLDER_COMMITTED_DATE
-    st.markdown("---")
-    st.subheader("🗓️ Daily Committed Date Breakdown Tabs")
-    
-    if unique_commit_dates:
-        tabs = st.tabs(["📊 All Combined Days"] + [f"📅 {d}" for d in unique_commit_dates])
-        
-        # All Combined Days tab
-        with tabs[0]:
-            render_dashboard(df_filtered, "All Committed Dates Combined")
-
-        # Individual Committed Day tabs
-        for idx, d_val in enumerate(unique_commit_dates):
-            with tabs[idx + 1]:
-                df_day = df_filtered[df_filtered['COMMIT_DATE_ONLY'] == d_val]
-                render_dashboard(df_day, f"Committed Date: {d_val}")
+    # RENDER MAIN DASHBOARD WITH ACTIVE SELECTED DATE
+    render_dashboard(df_active_view, selected_date_card)
 
 else:
     st.info("👋 Upload your operational data file above to generate the full dashboard.")
