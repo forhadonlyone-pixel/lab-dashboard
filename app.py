@@ -75,7 +75,7 @@ if uploaded_file is not None:
         options=sorted(df[bill_client_col].dropna().unique().tolist()) if bill_client_col in df.columns else []
     )
 
-    # Boolean Masking for financial DF calculation (memory friendly)
+    # Boolean Masking for financial DF calculation
     finance_mask = pd.Series(True, index=df.index)
     if filter_buyer and buyer_col in df.columns:
         finance_mask &= df[buyer_col].isin(filter_buyer)
@@ -123,14 +123,16 @@ if uploaded_file is not None:
             with st.expander("Show breakdowns per buyer"):
                 st.dataframe(df.groupby(buyer_col)[sample_id_col].nunique().rename("Samples Received"), use_container_width=True)
 
-    # 05. Lab breakdown metrics
+    # 05. Safe Lab breakdown metrics
     with c5:
         if lab_type_col in df.columns and sample_id_col in df.columns:
-            df_lower = df[lab_type_col].astype(str).str.lower()
-            chem_only = df[(df_lower.str.contains('chemical')) & (~df_lower.str.contains('physical'))][sample_id_col].nunique()
-            phys_only = df[(df_lower.str.contains('physical')) & (~df_lower.str.contains('chemical'))][sample_id_col].nunique()
-            shared_count = df[(df_lower.str.contains('chemical')) & (df_lower.str.contains('physical'))][sample_id_col].nunique()
+            df_lower = df[lab_type_col].fillna("").astype(str).str.lower()
+            chem_only = df[(df_lower.str.contains('chem')) & (~df_lower.str.contains('phys'))][sample_id_col].nunique()
+            phys_only = df[(df_lower.str.contains('phys')) & (~df_lower.str.contains('chem'))][sample_id_col].nunique()
+            shared_count = df[(df_lower.str.contains('chem')) & (df_lower.str.contains('phys'))][sample_id_col].nunique()
             st.metric("🔬 05. Sample Type Breakdown", f"Chem: {chem_only} | Phys: {phys_only}", f"Shared: {shared_count} Samples")
+        else:
+            st.metric("🔬 05. Sample Type Breakdown", "N/A", "Column 'LAB_TYPE' Missing")
 
     # 06. Total Unique Folders
     with c6:
@@ -141,7 +143,7 @@ if uploaded_file is not None:
     st.markdown("---")
     st.subheader("💰 10. Financial Charge Segment Analysis")
     if charges_col in finance_df.columns:
-        total_rev = finance_df[charges_col].sum()
+        total_rev = pd.to_numeric(finance_df[charges_col], errors='coerce').sum()
         st.metric(label="Total Cross-Filtered Financial Revenue", value=f"${total_rev:,.2f}")
         st.caption("💡 Adjust the 'Financial Intersect Filters' on the left sidebar to change calculations Buyer-wise, Service-wise, or Client-wise.")
 
@@ -168,7 +170,7 @@ if uploaded_file is not None:
         use_container_width=True
     )
 
-    # 08. Commits Breach Table (> 3 Hours) Neon Green
+    # 08. Commits Breach Table (> 3 Hours)
     st.markdown("#### 🟢 08. Commits Breaching SLA (> 3 Hours Target)")
     if 'commit_gap_hours' in df.columns and folder_id_col in df.columns and buyer_col in df.columns:
         breach_3h = df[df['commit_gap_hours'] > 3][[folder_id_col, buyer_col]].drop_duplicates()
@@ -178,10 +180,13 @@ if uploaded_file is not None:
                 use_container_width=True,
                 hide_index=True
             )
+            # Add Export Button
+            csv_3h = breach_3h.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Export 3H Breaches to CSV", data=csv_3h, file_name="commit_breaches_3h.csv", mime="text/csv")
         else:
             st.success("Great job! Zero folders breached the 3-hour commitment SLA.")
 
-    # 09. ACK Breach Table (> 2 Hours) Neon Orange
+    # 09. ACK Breach Table (> 2 Hours)
     st.markdown("#### 🟠 09. Acknowledgements Breaching SLA (> 2 Hours Target)")
     if 'ack_gap_hours' in df.columns and folder_id_col in df.columns and buyer_col in df.columns:
         breach_2h = df[df['ack_gap_hours'] > 2][[folder_id_col, buyer_col]].drop_duplicates()
@@ -191,6 +196,9 @@ if uploaded_file is not None:
                 use_container_width=True,
                 hide_index=True
             )
+            # Add Export Button
+            csv_2h = breach_2h.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Export 2H Breaches to CSV", data=csv_2h, file_name="ack_breaches_2h.csv", mime="text/csv")
         else:
             st.success("Great job! Zero folders breached the 2-hour acknowledgement SLA.")
 
