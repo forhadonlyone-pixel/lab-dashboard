@@ -47,9 +47,9 @@ if uploaded_file is not None:
             df_raw[col] = df_raw[col].apply(lambda x: str(x).split('.')[0] if '.' in str(x) else str(x))
             df_raw[col] = pd.to_datetime(df_raw[col], errors='coerce')
 
-    # Extract clean Date only column for daily grouping
-    if folder_date_col in df_raw.columns:
-        df_raw['RECEIVE_DATE_ONLY'] = df_raw[folder_date_col].dt.date
+    # Extract clean Committed Date only column for daily grouping
+    if commit_date_col in df_raw.columns:
+        df_raw['COMMIT_DATE_ONLY'] = df_raw[commit_date_col].dt.date
 
     # Operational gaps in hours
     if commit_date_col in df_raw.columns and folder_date_col in df_raw.columns:
@@ -60,19 +60,36 @@ if uploaded_file is not None:
     # SIDEBAR FILTERS
     st.sidebar.header("🎛️ Master Filters")
 
-    # REG_GROUP Filter
+    # Date Range Filter based on FOLDER_COMMITTED_DATE
     df_filtered = df_raw.copy()
+    if commit_date_col in df_filtered.columns and not df_filtered[commit_date_col].dropna().empty:
+        min_date = df_filtered[commit_date_col].min().date()
+        max_date = df_filtered[commit_date_col].max().date()
+        selected_dates = st.sidebar.date_input(
+            "📅 Committed Date Range", 
+            [min_date, max_date], 
+            min_value=min_date, 
+            max_value=max_date
+        )
+        if len(selected_dates) == 2:
+            start_date, end_date = selected_dates
+            df_filtered = df_filtered[
+                (df_filtered[commit_date_col].dt.date >= start_date) & 
+                (df_filtered[commit_date_col].dt.date <= end_date)
+            ]
+
+    # REG_GROUP Filter
     if reg_group_col in df_filtered.columns:
         groups = ['All Groups'] + sorted(df_filtered[reg_group_col].dropna().unique().tolist())
         selected_group = st.sidebar.selectbox("Filter by REG_GROUP (Column O)", options=groups)
         if selected_group != 'All Groups':
             df_filtered = df_filtered[df_filtered[reg_group_col] == selected_group]
 
-    # DAY-WISE DATE CARDS SELECTOR IN SIDEBAR
-    st.sidebar.subheader("📅 Individual Day Selector")
-    unique_dates = sorted(df_filtered['RECEIVE_DATE_ONLY'].dropna().unique().tolist()) if 'RECEIVE_DATE_ONLY' in df_filtered.columns else []
-    date_options = ['All Combined Days'] + [str(d) for d in unique_dates]
-    selected_date_card = st.sidebar.radio("Select Specific Day to Analyze:", options=date_options)
+    # DAY-WISE DATE CARDS SELECTOR IN SIDEBAR (Based on FOLDER_COMMITTED_DATE)
+    st.sidebar.subheader("📅 Individual Committed Day Selector")
+    unique_commit_dates = sorted(df_filtered['COMMIT_DATE_ONLY'].dropna().unique().tolist()) if 'COMMIT_DATE_ONLY' in df_filtered.columns else []
+    date_options = ['All Combined Days'] + [str(d) for d in unique_commit_dates]
+    selected_date_card = st.sidebar.radio("Select Specific Committed Day to Analyze:", options=date_options)
 
     # Exclude Buyers/Clients from ACK ≤ 2h Metrics
     st.sidebar.subheader("🚫 Exclude Buyers/Clients from ACK ≤ 2h")
@@ -100,9 +117,9 @@ if uploaded_file is not None:
         options=sorted(df_filtered[bill_client_col].dropna().unique().tolist()) if bill_client_col in df_filtered.columns else []
     )
 
-    # MAIN RENDER FUNCTION FOR A GIVEN DATAFRAME
+    # MAIN RENDER FUNCTION FOR A GIVEN DATAFRAME VIEW
     def render_dashboard(df, date_label):
-        st.markdown(f"## 📅 Operating Data View: **{date_label}**")
+        st.markdown(f"## 📅 Operating Data View (Committed Date): **{date_label}**")
 
         ack_filtered_df = df.copy()
         if exclude_buyers and buyer_col in ack_filtered_df.columns:
@@ -265,23 +282,22 @@ if uploaded_file is not None:
             else:
                 st.success("Zero folders breached the 2-hour acknowledgement SLA.")
 
-    # DISPLAY DYNAMIC DAY TABS OR SELECTED DAY
+    # DISPLAY DYNAMIC DAY TABS BASED ON FOLDER_COMMITTED_DATE
     st.markdown("---")
-    st.subheader("🗓️ Daily Breakdown Tabs")
+    st.subheader("🗓️ Daily Committed Date Breakdown Tabs")
     
-    if unique_dates:
-        # Create tabs for each date + 1 tab for All Combined Days
-        tabs = st.tabs(["📊 All Combined Days"] + [f"📅 {d}" for d in unique_dates])
+    if unique_commit_dates:
+        tabs = st.tabs(["📊 All Combined Days"] + [f"📅 {d}" for d in unique_commit_dates])
         
         # All Combined Days tab
         with tabs[0]:
-            render_dashboard(df_filtered, "All Dates Combined")
+            render_dashboard(df_filtered, "All Committed Dates Combined")
 
-        # Individual Day tabs
-        for idx, d_val in enumerate(unique_dates):
+        # Individual Committed Day tabs
+        for idx, d_val in enumerate(unique_commit_dates):
             with tabs[idx + 1]:
-                df_day = df_filtered[df_filtered['RECEIVE_DATE_ONLY'] == d_val]
-                render_dashboard(df_day, f"Date: {d_val}")
+                df_day = df_filtered[df_filtered['COMMIT_DATE_ONLY'] == d_val]
+                render_dashboard(df_day, f"Committed Date: {d_val}")
 
 else:
     st.info("👋 Upload your operational data file above to generate the full dashboard.")
