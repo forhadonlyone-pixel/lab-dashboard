@@ -10,16 +10,14 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 2. Custom CSS - Prioritizing Grey & Orange Color Palette
+# 2. Custom Executive CSS (Grey & Orange Styling)
 st.markdown("""
 <style>
-    /* Global Container Adjustments */
     .block-container {
         padding-top: 1.8rem;
         padding-bottom: 2rem;
     }
     
-    /* Main Dashboard Header - Slate Grey with Vibrant Orange Border */
     .main-header {
         background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
         padding: 22px 30px;
@@ -45,7 +43,6 @@ st.markdown("""
         font-size: 0.95rem;
     }
 
-    /* Executive Metric Cards - Grey Base with Orange Accent Options */
     .kpi-card {
         background: rgba(30, 41, 59, 0.85);
         backdrop-filter: blur(10px);
@@ -61,7 +58,6 @@ st.markdown("""
         box-shadow: 0 8px 20px rgba(255, 107, 0, 0.15);
     }
     
-    /* Orange & Grey Specific Borders */
     .kpi-card-orange { border-left: 5px solid #ff6b00; }
     .kpi-card-grey { border-left: 5px solid #64748b; }
 
@@ -80,12 +76,11 @@ st.markdown("""
         line-height: 1.2;
     }
     
-    /* ENLARGED PERCENTAGE STYLING */
     .kpi-percentage {
         font-size: 1.4rem !important;
         font-weight: 700 !important;
         margin-left: 10px;
-        color: #ff8c00 !important; /* Vibrant Orange */
+        color: #ff8c00 !important;
     }
 
     .sub-badge-orange {
@@ -100,7 +95,6 @@ st.markdown("""
         margin-top: 6px;
     }
 
-    /* Section Subheaders */
     .section-title {
         font-size: 1.25rem;
         font-weight: 700;
@@ -111,7 +105,6 @@ st.markdown("""
         gap: 8px;
     }
 
-    /* Sidebar Styling */
     section[data-testid="stSidebar"] {
         background-color: #0f172a;
         border-right: 1px solid rgba(255, 255, 255, 0.05);
@@ -120,14 +113,14 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# CACHED DATA LOAD & PREPROCESSING
+# HIGH-SPEED CACHED DATA LOAD & VECTORIZED PREPROCESSING
 # ---------------------------------------------------------
-@st.cache_data(show_spinner="⚡ Processing Lab Operations Data...")
+@st.cache_data(show_spinner="⚡ Processing Lab Operations Data...", max_entries=5)
 def load_and_preprocess_data(file):
     if file.name.endswith('.csv'):
-        df_raw = pd.read_csv(file)
+        df = pd.read_csv(file)
     else:
-        df_raw = pd.read_excel(file)
+        df = pd.read_excel(file)
 
     folder_date_col = 'FOLDER_RECEIVE_DATE'
     ack_date_col = 'ACKNOWLEDGEMENT_DATE'
@@ -135,22 +128,41 @@ def load_and_preprocess_data(file):
 
     # Fast Vectorized Date Parsing
     for col in [folder_date_col, ack_date_col, commit_date_col]:
-        if col in df_raw.columns:
-            s = df_raw[col].fillna("").astype(str).str.replace('T', ' ', regex=False)
-            s = s.str.split('.').str[0]
-            df_raw[col] = pd.to_datetime(s, errors='coerce')
+        if col in df.columns:
+            s = df[col].fillna("").astype(str).str.replace('T', ' ', regex=False).str.split('.').str[0]
+            df[col] = pd.to_datetime(s, errors='coerce')
 
-    if commit_date_col in df_raw.columns:
-        df_raw['COMMIT_DATE_ONLY'] = df_raw[commit_date_col].dt.date
+    if commit_date_col in df.columns:
+        df['COMMIT_DATE_ONLY'] = df[commit_date_col].dt.date
 
-    if commit_date_col in df_raw.columns and folder_date_col in df_raw.columns:
-        df_raw['commit_gap_hours'] = (df_raw[commit_date_col] - df_raw[folder_date_col]).dt.total_seconds() / 3600.0
-    if ack_date_col in df_raw.columns and folder_date_col in df_raw.columns:
-        df_raw['ack_gap_hours'] = (df_raw[ack_date_col] - df_raw[folder_date_col]).dt.total_seconds() / 3600.0
+    # Pre-compute hours and SLA boolean flags instantly
+    if commit_date_col in df.columns and folder_date_col in df.columns:
+        df['commit_gap_hours'] = (df[commit_date_col] - df[folder_date_col]).dt.total_seconds() / 3600.0
+        df['is_commit_3h'] = df['commit_gap_hours'] <= 3.0
+    else:
+        df['commit_gap_hours'] = np.nan
+        df['is_commit_3h'] = False
 
-    return df_raw
+    if ack_date_col in df.columns and folder_date_col in df.columns:
+        df['ack_gap_hours'] = (df[ack_date_col] - df[folder_date_col]).dt.total_seconds() / 3600.0
+        df['is_ack_2h'] = df['ack_gap_hours'] <= 2.0
+    else:
+        df['ack_gap_hours'] = np.nan
+        df['is_ack_2h'] = False
 
-# Main Title Header Banner
+    # Pre-compute lab type flags
+    lab_type_col = 'TEST_GROUP'
+    if lab_type_col in df.columns:
+        lab_str = df[lab_type_col].fillna("").astype(str).str.lower()
+        df['has_chem'] = lab_str.str.contains('chem')
+        df['has_phys'] = lab_str.str.contains('phys')
+    else:
+        df['has_chem'] = False
+        df['has_phys'] = False
+
+    return df
+
+# Main Header
 st.markdown("""
 <div class="main-header">
     <h1>🔬 Laboratory Operations Executive Dashboard</h1>
@@ -158,7 +170,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Upload Section
 uploaded_file = st.file_uploader(
     "📂 Upload daily Excel/CSV operational dump", 
     type=["xlsx", "csv"]
@@ -171,7 +182,6 @@ if uploaded_file is not None:
         st.error(f"Error reading file: {e}")
         st.stop()
 
-    # Column Schema Mappings
     folder_date_col = 'FOLDER_RECEIVE_DATE'
     ack_date_col = 'ACKNOWLEDGEMENT_DATE'
     commit_date_col = 'FOLDER_COMMITTED_DATE'
@@ -180,11 +190,9 @@ if uploaded_file is not None:
     comm_by_col = 'COMMITTED_BY'
     ack_by_col = 'ACKNOWLEDGEMENT_BY'
     reg_group_col = 'REG_GROUP'
-    lab_type_col = 'TEST_GROUP'
     bill_client_col = 'BILL_TO_CLIENT'
     folder_id_col = 'FOLDER#'
     sample_id_col = 'SAMPLE_NUMBER'
-    
     currency_col = 'CURRENCY'        
     ex_rate_col = 'EXCHANGE_RATE'    
     charges_col = 'TOTAL_CHARGES'    
@@ -192,7 +200,7 @@ if uploaded_file is not None:
     # SIDEBAR CONTROLS
     st.sidebar.markdown("### 🎛️ Executive Filters")
 
-    df_filtered = df_raw.copy()
+    df_filtered = df_raw
     if commit_date_col in df_filtered.columns and not df_filtered[commit_date_col].dropna().empty:
         min_date = df_filtered[commit_date_col].min().date()
         max_date = df_filtered[commit_date_col].max().date()
@@ -205,8 +213,8 @@ if uploaded_file is not None:
         if len(selected_dates) == 2:
             start_date, end_date = selected_dates
             df_filtered = df_filtered[
-                (df_filtered[commit_date_col].dt.date >= start_date) & 
-                (df_filtered[commit_date_col].dt.date <= end_date)
+                (df_filtered['COMMIT_DATE_ONLY'] >= start_date) & 
+                (df_filtered['COMMIT_DATE_ONLY'] <= end_date)
             ]
 
     if reg_group_col in df_filtered.columns:
@@ -224,7 +232,7 @@ if uploaded_file is not None:
     if selected_date_card != 'All Combined Days':
         df_active_view = df_filtered[df_filtered['COMMIT_DATE_ONLY'].astype(str) == selected_date_card]
     else:
-        df_active_view = df_filtered.copy()
+        df_active_view = df_filtered
 
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 🚫 ACK Exclusions")
@@ -245,6 +253,7 @@ if uploaded_file is not None:
     filter_service = st.sidebar.multiselect("Service Level Filter", options=sorted(df_filtered[service_col].dropna().astype(str).unique().tolist()) if service_col in df_filtered.columns else [])
     filter_client = st.sidebar.multiselect("Client Filter", options=all_clients_list)
 
+    # Fast eligibility mask
     def apply_ack_eligibility_filter(df_in):
         df_out = df_in
         if exclude_buyers and buyer_col in df_out.columns:
@@ -254,7 +263,6 @@ if uploaded_file is not None:
             df_out = df_out[~hm_mask]
         return df_out
 
-    # DASHBOARD MAIN CONTENT RENDER
     def render_dashboard(df, date_label):
         st.markdown(f"<div class='section-title'>📅 Active Operating View: <span style='color:#ff6b00;'>{date_label}</span></div>", unsafe_allow_html=True)
 
@@ -270,14 +278,13 @@ if uploaded_file is not None:
 
         finance_df = df[finance_mask]
 
-        # TOP EXECUTIVE METRIC CARDS
         c1, c2, c3 = st.columns(3)
         c4, c5, c6 = st.columns(3)
 
         # C1: Commit SLA
         with c1:
             total_samples = df[sample_id_col].nunique() if sample_id_col in df.columns else 0
-            commit_under_3 = df[df['commit_gap_hours'] <= 3][sample_id_col].nunique() if 'commit_gap_hours' in df.columns else 0
+            commit_under_3 = df[df['is_commit_3h']][sample_id_col].nunique() if sample_id_col in df.columns else 0
             pct_c1 = (commit_under_3 / total_samples * 100) if total_samples > 0 else 0
             st.markdown(f"""
             <div class="kpi-card kpi-card-orange">
@@ -289,7 +296,7 @@ if uploaded_file is not None:
         # C2: ACK SLA
         with c2:
             ack_total_samples = ack_filtered_df[sample_id_col].nunique() if sample_id_col in ack_filtered_df.columns else 0
-            ack_under_2 = ack_filtered_df[ack_filtered_df['ack_gap_hours'] <= 2][sample_id_col].nunique() if 'ack_gap_hours' in ack_filtered_df.columns else 0
+            ack_under_2 = ack_filtered_df[ack_filtered_df['is_ack_2h']][sample_id_col].nunique() if sample_id_col in ack_filtered_df.columns else 0
             pct_c2 = (ack_under_2 / ack_total_samples * 100) if ack_total_samples > 0 else 0
             st.markdown(f"""
             <div class="kpi-card kpi-card-orange">
@@ -320,13 +327,12 @@ if uploaded_file is not None:
             </div>
             """, unsafe_allow_html=True)
 
-        # C5: Sample Breakdown
+        # C5: Sample Breakdown (Fast Vectorized Flags)
         with c5:
-            if lab_type_col in df.columns:
-                df_lower = df[lab_type_col].fillna("").astype(str).str.lower()
-                chem_only = df[(df_lower.str.contains('chem')) & (~df_lower.str.contains('phys'))][sample_id_col].nunique()
-                phys_only = df[(df_lower.str.contains('phys')) & (~df_lower.str.contains('chem'))][sample_id_col].nunique()
-                shared_count = df[(df_lower.str.contains('chem')) & (df_lower.str.contains('phys'))][sample_id_col].nunique()
+            if sample_id_col in df.columns:
+                chem_only = df[df['has_chem'] & ~df['has_phys']][sample_id_col].nunique()
+                phys_only = df[df['has_phys'] & ~df['has_chem']][sample_id_col].nunique()
+                shared_count = df[df['has_chem'] & df['has_phys']][sample_id_col].nunique()
             else:
                 chem_only = phys_only = shared_count = 0
             st.markdown(f"""
@@ -347,35 +353,41 @@ if uploaded_file is not None:
             </div>
             """, unsafe_allow_html=True)
 
-        # STAFF PERFORMANCE MATRIX
+        # OPTIMIZED STAFF PERFORMANCE MATRIX
         st.markdown("<div class='section-title'>👤 Staff Performance & SLA Compliance Matrix</div>", unsafe_allow_html=True)
         if comm_by_col in df.columns and folder_id_col in df.columns:
+            # 1. Total folders per person
             comm_grp = df.groupby(comm_by_col).agg(
                 Total_Folders=(folder_id_col, 'nunique'),
-                Commit_3h=(folder_id_col, lambda s: df.loc[s.index].query("commit_gap_hours <= 3")[folder_id_col].nunique()),
                 Buyers=(buyer_col, lambda s: ", ".join(s.dropna().unique()))
             ).reset_index()
 
+            # 2. Folders under 3h SLA per person
+            commit_3h_grp = df[df['is_commit_3h']].groupby(comm_by_col)[folder_id_col].nunique().reset_index()
+            commit_3h_grp.columns = [comm_by_col, 'Commit_3h']
+
+            summary_matrix = pd.merge(comm_grp, commit_3h_grp, on=comm_by_col, how='left').fillna({'Commit_3h': 0})
+
+            # 3. Folders ACK under 2h SLA per person
             if ack_by_col in ack_filtered_df.columns:
-                ack_grp = ack_filtered_df.query("ack_gap_hours <= 2").groupby(ack_by_col)[folder_id_col].nunique().reset_index()
+                ack_grp = ack_filtered_df[ack_filtered_df['is_ack_2h']].groupby(ack_by_col)[folder_id_col].nunique().reset_index()
                 ack_grp.columns = [comm_by_col, "Folders Acknowledged (≤ 2h)"]
-                summary_matrix = pd.merge(comm_grp, ack_grp, on=comm_by_col, how='left').fillna(0)
+                summary_matrix = pd.merge(summary_matrix, ack_grp, on=comm_by_col, how='left').fillna({"Folders Acknowledged (≤ 2h)": 0})
             else:
-                summary_matrix = comm_grp
                 summary_matrix["Folders Acknowledged (≤ 2h)"] = 0
 
             summary_matrix["Commit SLA Compliance"] = (summary_matrix["Commit_3h"] / summary_matrix["Total_Folders"] * 100).round(1).astype(str) + "%"
             
             summary_matrix.columns = [
-                "Person Name", "Total Folders Actioned", "Folders Committed (≤ 3h)", 
-                "Associated Buyer(s)", "Folders Acknowledged (≤ 2h)", "Commit SLA Compliance"
+                "Person Name", "Total Folders Actioned", "Associated Buyer(s)", 
+                "Folders Committed (≤ 3h)", "Folders Acknowledged (≤ 2h)", "Commit SLA Compliance"
             ]
             
             ordered_cols = ["Person Name", "Associated Buyer(s)", "Total Folders Actioned", "Folders Committed (≤ 3h)", "Commit SLA Compliance", "Folders Acknowledged (≤ 2h)"]
             st.dataframe(summary_matrix[ordered_cols], use_container_width=True, hide_index=True)
 
         # FINANCIAL ANALYSIS
-        st.markdown("<div class='section-title'>💰 10. Financial Charge Segment Analysis</div>", unsafe_allow_html=True)
+        st.markdown("<div class='section-title'>💰 Financial Charge Segment Analysis</div>", unsafe_allow_html=True)
 
         if charges_col in finance_df.columns and folder_id_col in finance_df.columns:
             fin_cols = [folder_id_col, charges_col]
@@ -385,32 +397,24 @@ if uploaded_file is not None:
                 fin_cols.append(ex_rate_col)
 
             unique_folder_charges = finance_df[fin_cols].drop_duplicates(subset=[folder_id_col])
-            unique_folder_charges[charges_col] = pd.to_numeric(unique_folder_charges[charges_col], errors='coerce').fillna(0)
+            charges_vec = pd.to_numeric(unique_folder_charges[charges_col], errors='coerce').fillna(0)
             
             if ex_rate_col in unique_folder_charges.columns:
-                unique_folder_charges[ex_rate_col] = pd.to_numeric(unique_folder_charges[ex_rate_col], errors='coerce').fillna(1).replace(0, 1)
+                ex_vec = pd.to_numeric(unique_folder_charges[ex_rate_col], errors='coerce').fillna(1.0).replace(0, 1.0)
             else:
-                unique_folder_charges[ex_rate_col] = 1.0
+                ex_vec = pd.Series(1.0, index=unique_folder_charges.index)
 
             if currency_col in unique_folder_charges.columns:
-                unique_folder_charges[currency_col] = unique_folder_charges[currency_col].fillna("BDT").astype(str).str.upper()
+                curr_vec = unique_folder_charges[currency_col].fillna("BDT").astype(str).str.upper()
             else:
-                unique_folder_charges[currency_col] = "BDT"
+                curr_vec = pd.Series("BDT", index=unique_folder_charges.index)
 
-            unique_folder_charges['CHARGES_USD'] = np.where(
-                unique_folder_charges[currency_col] == 'BDT',
-                unique_folder_charges[charges_col] / unique_folder_charges[ex_rate_col],
-                unique_folder_charges[charges_col]
-            )
+            is_bdt = (curr_vec == 'BDT')
+            charges_usd = np.where(is_bdt, charges_vec / ex_vec, charges_vec)
+            charges_bdt = np.where(~is_bdt, charges_vec * ex_vec, charges_vec)
 
-            unique_folder_charges['CHARGES_BDT'] = np.where(
-                unique_folder_charges[currency_col] == 'USD',
-                unique_folder_charges[charges_col] * unique_folder_charges[ex_rate_col],
-                unique_folder_charges[charges_col]
-            )
-
-            total_usd = unique_folder_charges['CHARGES_USD'].sum()
-            total_bdt = unique_folder_charges['CHARGES_BDT'].sum()
+            total_usd = charges_usd.sum()
+            total_bdt = charges_bdt.sum()
 
             f1, f2 = st.columns(2)
             with f1:
@@ -435,9 +439,8 @@ if uploaded_file is not None:
             return 'background-color: #ff6b00; color: white; font-weight: bold;'
 
         st.markdown("##### 🚨 Missing Folder Acknowledgements")
-        missing_ack_df = ack_filtered_df[ack_filtered_df[ack_date_col].isna()] if ack_date_col in ack_filtered_df.columns else ack_filtered_df.copy()
-        columns_to_show = [folder_id_col, buyer_col, bill_client_col, comm_by_col]
-        available_cols = [col for col in columns_to_show if col in missing_ack_df.columns]
+        missing_ack_df = ack_filtered_df[ack_filtered_df[ack_date_col].isna()] if ack_date_col in ack_filtered_df.columns else ack_filtered_df
+        available_cols = [c for c in [folder_id_col, buyer_col, bill_client_col, comm_by_col] if c in missing_ack_df.columns]
         missing_ack_unique = missing_ack_df[available_cols].drop_duplicates()
         
         if not missing_ack_unique.empty:
