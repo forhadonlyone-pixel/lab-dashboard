@@ -7,7 +7,10 @@ st.set_page_config(page_title="Lab Operations Master Dashboard", layout="wide")
 st.title("🔬 Laboratory Operations Master Performance Dashboard")
 
 # File uploader widget
-uploaded_file = st.file_uploader("📂 Upload your daily Lab Excel/CSV file (Accepts any filename format like 05/07/26)", type=["xlsx", "csv"])
+uploaded_file = st.file_uploader(
+    "📂 Upload your daily Lab Excel/CSV file (Accepts any filename format like 05/07/26)", 
+    type=["xlsx", "csv"]
+)
 
 if uploaded_file is not None:
     try:
@@ -35,16 +38,12 @@ if uploaded_file is not None:
     sample_id_col = 'SAMPLE_NUMBER'
     charges_col = 'TOTAL_CHARGES'
 
-    # Clean and convert Date columns safely to handle complex sub-second timestamps & "T" values
+    # Clean and convert Date columns safely
     for col in [folder_date_col, ack_date_col, commit_date_col]:
         if col in df.columns:
-            # Step A: Convert to string and handle NaN values safely
             df[col] = df[col].fillna("").astype(str)
-            # Step B: Replace the "T" separator with a space if it exists
             df[col] = df[col].str.replace('T', ' ', regex=False)
-            # Step C: Strip trailing sub-seconds/nanoseconds
             df[col] = df[col].apply(lambda x: str(x).split('.')[0] if '.' in str(x) else str(x))
-            # Step D: Parse safely into true system dates
             df[col] = pd.to_datetime(df[col], errors='coerce')
 
     # Calculate operational intervals safely
@@ -53,7 +52,7 @@ if uploaded_file is not None:
     if ack_date_col in df.columns and folder_date_col in df.columns:
         df['ack_gap_hours'] = (df[ack_date_col] - df[folder_date_col]).dt.total_seconds() / 3600
 
-    # 11. Separate/Filter whole dashboard by REG_GROUP (Column O)
+    # Separate/Filter whole dashboard by REG_GROUP
     st.sidebar.header("🎛️ Master Filters")
     if reg_group_col in df.columns:
         groups = ['All Groups'] + sorted(df[reg_group_col].dropna().unique().tolist())
@@ -61,16 +60,31 @@ if uploaded_file is not None:
         if selected_group != 'All Groups':
             df = df[df[reg_group_col] == selected_group]
 
-    # Global cross filters for Metric 10
+    # Global cross filters for Financial Metric Segment
     st.sidebar.subheader("💰 Financial Intersect Filters")
-    filter_buyer = st.sidebar.multiselect("Buyer (Column D)", options=sorted(df[buyer_col].dropna().unique().tolist()) if buyer_col in df.columns else [])
-    filter_service = st.sidebar.multiselect("Service Level (Column F)", options=sorted(df[service_col].dropna().unique().tolist()) if service_col in df.columns else [])
-    filter_client = st.sidebar.multiselect("Bill To Client (Column AF)", options=sorted(df[bill_client_col].dropna().unique().tolist()) if bill_client_col in df.columns else [])
+    filter_buyer = st.sidebar.multiselect(
+        "Buyer (Column D)", 
+        options=sorted(df[buyer_col].dropna().unique().tolist()) if buyer_col in df.columns else []
+    )
+    filter_service = st.sidebar.multiselect(
+        "Service Level (Column F)", 
+        options=sorted(df[service_col].dropna().unique().tolist()) if service_col in df.columns else []
+    )
+    filter_client = st.sidebar.multiselect(
+        "Bill To Client (Column AF)", 
+        options=sorted(df[bill_client_col].dropna().unique().tolist()) if bill_client_col in df.columns else []
+    )
 
-    finance_df = df.copy()
-    if filter_buyer: finance_df = finance_df[finance_df[buyer_col].isin(filter_buyer)]
-    if filter_service: finance_df = finance_df[finance_df[service_col].isin(filter_service)]
-    if filter_client: finance_df = finance_df[finance_df[bill_client_col].isin(filter_client)]
+    # Boolean Masking for financial DF calculation (memory friendly)
+    finance_mask = pd.Series(True, index=df.index)
+    if filter_buyer and buyer_col in df.columns:
+        finance_mask &= df[buyer_col].isin(filter_buyer)
+    if filter_service and service_col in df.columns:
+        finance_mask &= df[service_col].isin(filter_service)
+    if filter_client and bill_client_col in df.columns:
+        finance_mask &= df[bill_client_col].isin(filter_client)
+
+    finance_df = df[finance_mask]
 
     # ---- CARDS METRIC RUN (Items 01 - 06) ----
     st.subheader("📊 Key Operational Summary Cards")
@@ -83,7 +97,7 @@ if uploaded_file is not None:
             total_samples = df[sample_id_col].nunique()
             commit_under_3 = df[df['commit_gap_hours'] <= 3][sample_id_col].nunique()
             pct = (commit_under_3 / total_samples * 100) if total_samples > 0 else 0
-            st.metric("✅ 01. Commits <= 3 Hours", f"{commit_under_3} Samples", f"{pct:.1f}% of total")
+            st.metric("✅ 01. Commits <= 3 Hours", f"{commit_under_3:,} Samples", f"{pct:.1f}% of total")
 
     # 02. Acknowledgement within 2 hours
     with c2:
@@ -91,7 +105,7 @@ if uploaded_file is not None:
             total_samples = df[sample_id_col].nunique()
             ack_under_2 = df[df['ack_gap_hours'] <= 2][sample_id_col].nunique()
             pct = (ack_under_2 / total_samples * 100) if total_samples > 0 else 0
-            st.metric("⏱️ 02. ACK <= 2 Hours", f"{ack_under_2} Samples", f"{pct:.1f}% of total")
+            st.metric("⏱️ 02. ACK <= 2 Hours", f"{ack_under_2:,} Samples", f"{pct:.1f}% of total")
 
     # 03. Team Commits counts
     with c3:
@@ -99,7 +113,7 @@ if uploaded_file is not None:
             active_staff = df[df[comm_by_col].notna()].groupby(comm_by_col)[sample_id_col].nunique()
             st.metric("👤 03. Total Team Active Commits", f"{len(active_staff)} Staff Members")
             with st.expander("Show breakdowns per person"):
-                st.dataframe(active_staff.rename("Samples Committed"))
+                st.dataframe(active_staff.rename("Samples Committed"), use_container_width=True)
 
     # 04. Samples per Buyer card summary
     with c4:
@@ -107,7 +121,7 @@ if uploaded_file is not None:
             top_buyer = df.groupby(buyer_col)[sample_id_col].nunique().idxmax() if not df.empty else "N/A"
             st.metric("🏢 04. Top Performing Buyer", f"{top_buyer}")
             with st.expander("Show breakdowns per buyer"):
-                st.dataframe(df.groupby(buyer_col)[sample_id_col].nunique().rename("Samples Received"))
+                st.dataframe(df.groupby(buyer_col)[sample_id_col].nunique().rename("Samples Received"), use_container_width=True)
 
     # 05. Lab breakdown metrics
     with c5:
@@ -116,18 +130,19 @@ if uploaded_file is not None:
             chem_only = df[(df_lower.str.contains('chemical')) & (~df_lower.str.contains('physical'))][sample_id_col].nunique()
             phys_only = df[(df_lower.str.contains('physical')) & (~df_lower.str.contains('chemical'))][sample_id_col].nunique()
             shared_count = df[(df_lower.str.contains('chemical')) & (df_lower.str.contains('physical'))][sample_id_col].nunique()
-            st.metric("🔬 05. Sample Type Breakdown", f"Single Chem: {chem_only} | Phys: {phys_only}", f"Shared: {shared_count} Samples")
+            st.metric("🔬 05. Sample Type Breakdown", f"Chem: {chem_only} | Phys: {phys_only}", f"Shared: {shared_count} Samples")
 
     # 06. Total Unique Folders
     with c6:
         if folder_id_col in df.columns:
-            st.metric("📁 06. Unique Folders Committed", f"{df[folder_id_col].nunique()} Folders")
+            st.metric("📁 06. Unique Folders Committed", f"{df[folder_id_col].nunique():,} Folders")
 
     # 10. Financial Metric Segment
     st.markdown("---")
     st.subheader("💰 10. Financial Charge Segment Analysis")
-    if charges_col in df.columns:
-        st.metric(label="Total Cross-Filtered Financial Revenue", value=f"{finance_df[charges_col].sum():,.2f}")
+    if charges_col in finance_df.columns:
+        total_rev = finance_df[charges_col].sum()
+        st.metric(label="Total Cross-Filtered Financial Revenue", value=f"${total_rev:,.2f}")
         st.caption("💡 Adjust the 'Financial Intersect Filters' on the left sidebar to change calculations Buyer-wise, Service-wise, or Client-wise.")
 
     # ---- DATAFRAMES / TABLES SECTION (Items 07 - 09) ----
@@ -144,7 +159,7 @@ if uploaded_file is not None:
     else:
         missing_ack_df = df.copy()
 
-    columns_to_show = ['FOLDER#', 'BUYER', 'BILL_TO_CLIENT', 'COMMITTED_BY']
+    columns_to_show = [folder_id_col, buyer_col, bill_client_col, comm_by_col]
     available_cols = [col for col in columns_to_show if col in missing_ack_df.columns]
 
     st.dataframe(
@@ -158,7 +173,11 @@ if uploaded_file is not None:
     if 'commit_gap_hours' in df.columns and folder_id_col in df.columns and buyer_col in df.columns:
         breach_3h = df[df['commit_gap_hours'] > 3][[folder_id_col, buyer_col]].drop_duplicates()
         if not breach_3h.empty:
-            st.dataframe(breach_3h.style.map(lambda v: apply_neon_styling(v, '#39FF14'), subset=[folder_id_col, buyer_col]), use_container_width=True)
+            st.dataframe(
+                breach_3h.style.map(lambda v: apply_neon_styling(v, '#39FF14'), subset=[folder_id_col, buyer_col]), 
+                use_container_width=True,
+                hide_index=True
+            )
         else:
             st.success("Great job! Zero folders breached the 3-hour commitment SLA.")
 
@@ -167,7 +186,11 @@ if uploaded_file is not None:
     if 'ack_gap_hours' in df.columns and folder_id_col in df.columns and buyer_col in df.columns:
         breach_2h = df[df['ack_gap_hours'] > 2][[folder_id_col, buyer_col]].drop_duplicates()
         if not breach_2h.empty:
-            st.dataframe(breach_2h.style.map(lambda v: apply_neon_styling(v, '#FF5F1F'), subset=[folder_id_col, buyer_col]), use_container_width=True)
+            st.dataframe(
+                breach_2h.style.map(lambda v: apply_neon_styling(v, '#FF5F1F'), subset=[folder_id_col, buyer_col]), 
+                use_container_width=True,
+                hide_index=True
+            )
         else:
             st.success("Great job! Zero folders breached the 2-hour acknowledgement SLA.")
 
