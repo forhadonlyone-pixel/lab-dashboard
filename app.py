@@ -11,84 +11,97 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 2. Custom Executive CSS (Grey & Orange Styling)
+# 2. Theme-Adaptive CSS (Compatible with Light, Dark & System Modes)
 st.markdown("""
 <style>
+    /* Container Adjustments */
     .block-container {
         padding-top: 1.8rem;
         padding-bottom: 2rem;
     }
-    
+
+    /* System Theme Aware CSS Variables */
+    :root {
+        --kpi-bg-light: #ffffff;
+        --kpi-border-light: #e2e8f0;
+        --header-bg-light: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+        --text-sub-light: #475569;
+        
+        --kpi-bg-dark: #1e293b;
+        --kpi-border-dark: rgba(255, 255, 255, 0.1);
+        --header-bg-dark: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        --text-sub-dark: #94a3b8;
+    }
+
+    /* Main Dashboard Header */
     .main-header {
-        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        background: var(--header-bg-light);
         padding: 22px 30px;
         border-radius: 12px;
-        color: #ffffff;
         margin-bottom: 25px;
-        border-left: 6px solid #ff6b00;
-        border-top: 1px solid rgba(255, 255, 255, 0.08);
-        border-right: 1px solid rgba(255, 255, 255, 0.08);
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+        border-left: 6px solid #ea580c;
+        border-top: 1px solid var(--kpi-border-light);
+        border-right: 1px solid var(--kpi-border-light);
+        border-bottom: 1px solid var(--kpi-border-light);
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
     }
     .main-header h1 {
-        color: #ffffff !important;
+        color: var(--text-color, #0f172a) !important;
         font-weight: 700 !important;
         font-size: 2.1rem !important;
         margin: 0 !important;
         letter-spacing: -0.5px;
     }
     .main-header p {
-        color: #94a3b8 !important;
+        color: #475569 !important;
         margin: 5px 0 0 0 !important;
         font-size: 0.95rem;
     }
 
+    /* Adaptive KPI Cards */
     .kpi-card {
-        background: rgba(30, 41, 59, 0.85);
-        backdrop-filter: blur(10px);
+        background: var(--kpi-bg-light);
         border-radius: 10px;
         padding: 18px 20px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        border: 1px solid var(--kpi-border-light);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        transition: transform 0.2s ease;
         min-height: 110px;
     }
     .kpi-card:hover {
         transform: translateY(-2px);
-        box-shadow: 0 8px 20px rgba(255, 107, 0, 0.15);
     }
     
-    .kpi-card-orange { border-left: 5px solid #ff6b00; }
-    .kpi-card-grey { border-left: 5px solid #64748b; }
+    .kpi-card-orange { border-left: 5px solid #ea580c !important; }
+    .kpi-card-grey { border-left: 5px solid #64748b !important; }
 
     .kpi-title {
         font-size: 0.82rem;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.5px;
-        color: #94a3b8;
+        color: #64748b;
         margin-bottom: 6px;
     }
     .kpi-value {
         font-size: 1.8rem;
         font-weight: 700;
-        color: #f8fafc;
+        color: var(--text-color, #0f172a);
         line-height: 1.2;
     }
     
     .kpi-percentage {
-        font-size: 1.4rem !important;
+        font-size: 1.35rem !important;
         font-weight: 700 !important;
-        margin-left: 10px;
-        color: #ff8c00 !important;
+        margin-left: 8px;
+        color: #ea580c !important;
     }
 
     .sub-badge-orange {
         display: inline-block;
-        background: rgba(255, 107, 0, 0.15);
-        color: #ff8c00;
-        border: 1px solid rgba(255, 107, 0, 0.3);
+        background: rgba(234, 88, 12, 0.12);
+        color: #c2410c;
+        border: 1px solid rgba(234, 88, 12, 0.3);
         padding: 3px 10px;
         border-radius: 4px;
         font-size: 0.82rem;
@@ -96,25 +109,46 @@ st.markdown("""
         margin-top: 6px;
     }
 
+    /* Section Subheaders */
     .section-title {
         font-size: 1.25rem;
         font-weight: 700;
-        color: #f1f5f9;
+        color: var(--text-color, #0f172a);
         margin: 25px 0 15px 0;
         display: flex;
         align-items: center;
         gap: 8px;
     }
 
-    section[data-testid="stSidebar"] {
-        background-color: #0f172a;
-        border-right: 1px solid rgba(255, 255, 255, 0.05);
+    /* Dark Mode Overrides (Triggered automatically when Dark Theme is Active) */
+    @media (prefers-color-scheme: dark) {
+        .main-header {
+            background: var(--header-bg-dark) !important;
+            border-color: var(--kpi-border-dark) !important;
+        }
+        .main-header p {
+            color: #94a3b8 !important;
+        }
+        .kpi-card {
+            background: var(--kpi-bg-dark) !important;
+            border-color: var(--kpi-border-dark) !important;
+        }
+        .kpi-title {
+            color: #94a3b8 !important;
+        }
+        .sub-badge-orange {
+            background: rgba(255, 107, 0, 0.18) !important;
+            color: #ff8c00 !important;
+        }
+        .kpi-percentage {
+            color: #ff8c00 !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# HIGH-SPEED CACHED DATA LOAD & VECTORIZED PREPROCESSING
+# CACHED PREPROCESSING
 # ---------------------------------------------------------
 @st.cache_data(show_spinner="⚡ Processing Lab Operations Data...", max_entries=5)
 def load_and_preprocess_data(file):
@@ -128,7 +162,6 @@ def load_and_preprocess_data(file):
     commit_date_col = 'FOLDER_COMMITTED_DATE'
     sample_rec_date_col = 'SAMPLE_RECEIVE_DATE'
 
-    # Fast Vectorized Date Parsing
     for col in [folder_date_col, ack_date_col, commit_date_col, sample_rec_date_col]:
         if col in df.columns:
             s = df[col].fillna("").astype(str).str.replace('T', ' ', regex=False).str.split('.').str[0]
@@ -137,7 +170,6 @@ def load_and_preprocess_data(file):
     if commit_date_col in df.columns:
         df['COMMIT_DATE_ONLY'] = df[commit_date_col].dt.date
 
-    # Pre-compute hours and SLA boolean flags
     if commit_date_col in df.columns and folder_date_col in df.columns:
         df['commit_gap_hours'] = (df[commit_date_col] - df[folder_date_col]).dt.total_seconds() / 3600.0
         df['is_commit_3h'] = df['commit_gap_hours'] <= 3.0
@@ -152,13 +184,11 @@ def load_and_preprocess_data(file):
         df['ack_gap_hours'] = np.nan
         df['is_ack_2h'] = False
 
-    # Extract Sample Receive Time for fast slicer filtering
     if sample_rec_date_col in df.columns:
         df['sample_rec_time'] = df[sample_rec_date_col].dt.time
     else:
         df['sample_rec_time'] = None
 
-    # Pre-compute lab type flags
     lab_type_col = 'TEST_GROUP'
     if lab_type_col in df.columns:
         lab_str = df[lab_type_col].fillna("").astype(str).str.lower()
@@ -170,7 +200,7 @@ def load_and_preprocess_data(file):
 
     return df
 
-# Main Header
+# Main Title Header
 st.markdown("""
 <div class="main-header">
     <h1>🔬 Laboratory Operations Executive Dashboard</h1>
@@ -193,7 +223,6 @@ if uploaded_file is not None:
     folder_date_col = 'FOLDER_RECEIVE_DATE'
     ack_date_col = 'ACKNOWLEDGEMENT_DATE'
     commit_date_col = 'FOLDER_COMMITTED_DATE'
-    sample_rec_date_col = 'SAMPLE_RECEIVE_DATE'
     buyer_col = 'BUYER'
     service_col = 'SERVICE_LEVEL'
     comm_by_col = 'COMMITTED_BY'
@@ -267,18 +296,14 @@ if uploaded_file is not None:
     filter_service = st.sidebar.multiselect("Service Level Filter", options=sorted(df_filtered[service_col].dropna().astype(str).unique().tolist()) if service_col in df_filtered.columns else [])
     filter_client = st.sidebar.multiselect("Client Filter", options=all_clients_list)
 
-    # Fast eligibility mask including time cutoff
     def apply_ack_eligibility_filter(df_in):
         df_out = df_in
-        
-        # 1. Buyer & Client Exclusions
         if exclude_buyers and buyer_col in df_out.columns:
             df_out = df_out[~df_out[buyer_col].isin(exclude_buyers)]
         if exclude_hm_clients and buyer_col in df_out.columns and bill_client_col in df_out.columns:
             hm_mask = (df_out[buyer_col].astype(str).str.upper().str.contains("H&M")) & (df_out[bill_client_col].isin(exclude_hm_clients))
             df_out = df_out[~hm_mask]
             
-        # 2. Time Cutoff Slicer (Exclude folders with SAMPLE_RECEIVE_DATE before selected time)
         if enable_time_cutoff and 'sample_rec_time' in df_out.columns:
             time_mask = df_out['sample_rec_time'].notna() & (df_out['sample_rec_time'] >= ack_cutoff_time)
             df_out = df_out[time_mask]
@@ -286,7 +311,7 @@ if uploaded_file is not None:
         return df_out
 
     def render_dashboard(df, date_label):
-        st.markdown(f"<div class='section-title'>📅 Active Operating View: <span style='color:#ff6b00;'>{date_label}</span></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='section-title'>📅 Active Operating View: <span style='color:#ea580c;'>{date_label}</span></div>", unsafe_allow_html=True)
 
         ack_filtered_df = apply_ack_eligibility_filter(df)
 
@@ -315,7 +340,7 @@ if uploaded_file is not None:
             </div>
             """, unsafe_allow_html=True)
 
-        # C2: ACK SLA (Uses Time Cutoff Filter)
+        # C2: ACK SLA
         with c2:
             ack_total_samples = ack_filtered_df[sample_id_col].nunique() if sample_id_col in ack_filtered_df.columns else 0
             ack_under_2 = ack_filtered_df[ack_filtered_df['is_ack_2h']][sample_id_col].nunique() if sample_id_col in ack_filtered_df.columns else 0
@@ -333,7 +358,7 @@ if uploaded_file is not None:
             st.markdown(f"""
             <div class="kpi-card kpi-card-grey">
                 <div class="kpi-title">03. Active Commits Staff</div>
-                <div class="kpi-value">{active_staff} <span style="font-size:1.1rem; font-weight:500; color:#cbd5e1;">Members</span></div>
+                <div class="kpi-value">{active_staff} <span style="font-size:1.1rem; font-weight:500;">Members</span></div>
             </div>
             """, unsafe_allow_html=True)
 
@@ -345,7 +370,7 @@ if uploaded_file is not None:
             st.markdown(f"""
             <div class="kpi-card kpi-card-grey">
                 <div class="kpi-title">04. Top Performing Buyer</div>
-                <div class="kpi-value" style="font-size: 1.3rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; color:#f8fafc;">{top_buyer}</div>
+                <div class="kpi-value" style="font-size: 1.3rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">{top_buyer}</div>
             </div>
             """, unsafe_allow_html=True)
 
@@ -371,11 +396,11 @@ if uploaded_file is not None:
             st.markdown(f"""
             <div class="kpi-card kpi-card-grey">
                 <div class="kpi-title">06. Unique Folders Committed</div>
-                <div class="kpi-value">{unique_folders:,} <span style="font-size:1.1rem; font-weight:500; color:#cbd5e1;">Folders</span></div>
+                <div class="kpi-value">{unique_folders:,} <span style="font-size:1.1rem; font-weight:500;">Folders</span></div>
             </div>
             """, unsafe_allow_html=True)
 
-        # STAFF PERFORMANCE MATRIX
+        # MATRIX
         st.markdown("<div class='section-title'>👤 Staff Performance & SLA Compliance Matrix</div>", unsafe_allow_html=True)
         if comm_by_col in df.columns and folder_id_col in df.columns:
             comm_grp = df.groupby(comm_by_col).agg(
@@ -438,16 +463,16 @@ if uploaded_file is not None:
             f1, f2 = st.columns(2)
             with f1:
                 st.markdown(f"""
-                <div class="kpi-card" style="border-left: 5px solid #ff6b00;">
+                <div class="kpi-card" style="border-left: 5px solid #ea580c;">
                     <div class="kpi-title">Total Financial Revenue (USD)</div>
-                    <div class="kpi-value" style="color:#ff8c00;">${total_usd:,.2f}</div>
+                    <div class="kpi-value" style="color:#ea580c;">${total_usd:,.2f}</div>
                 </div>
                 """, unsafe_allow_html=True)
             with f2:
                 st.markdown(f"""
-                <div class="kpi-card" style="border-left: 5px solid #94a3b8;">
+                <div class="kpi-card" style="border-left: 5px solid #64748b;">
                     <div class="kpi-title">Total Financial Revenue (BDT)</div>
-                    <div class="kpi-value" style="color:#f1f5f9;">৳{total_bdt:,.2f}</div>
+                    <div class="kpi-value">৳{total_bdt:,.2f}</div>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -455,7 +480,7 @@ if uploaded_file is not None:
         st.markdown("<div class='section-title'>📋 Exception & SLA Breach Logs</div>", unsafe_allow_html=True)
 
         def apply_orange_highlight(val):
-            return 'background-color: #ff6b00; color: white; font-weight: bold;'
+            return 'background-color: #ea580c; color: white; font-weight: bold;'
 
         st.markdown("##### 🚨 Missing Folder Acknowledgements")
         missing_ack_df = ack_filtered_df[ack_filtered_df[ack_date_col].isna()] if ack_date_col in ack_filtered_df.columns else ack_filtered_df
