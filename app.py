@@ -6,7 +6,7 @@ import datetime
 # 1. Page Configuration
 st.set_page_config(
     page_title="Lab Operations Dashboard",
-    page_icon="⬡ SGS",
+    page_icon="🔬",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -203,7 +203,7 @@ def load_and_preprocess_data(file):
 # Main Title Header
 st.markdown("""
 <div class="main-header">
-    <h1>🔬 Laboratory Operations Executive Dashboard</h1>
+    <h1>⬡ Lab Operations Dashboard & SGS</h1>
     <p>Real-time SLA tracking, operational commitments, and financial segment analytics</p>
 </div>
 """, unsafe_allow_html=True)
