@@ -5,7 +5,7 @@ import datetime
 
 # 1. Page Configuration
 st.set_page_config(
-    page_title="Lab Operations Dashboard", # ✅ UPDATED
+    page_title="Lab Operations Dashboard",
     page_icon="🔬",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -120,7 +120,7 @@ st.markdown("""
         gap: 8px;
     }
 
-    /* Dark Mode Overrides (Triggered automatically when Dark Theme is Active) */
+    /* Dark Mode Overrides */
     @media (prefers-color-scheme: dark) {
         .main-header {
             background: var(--header-bg-dark) !important;
@@ -148,28 +148,33 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# CACHED PREPROCESSING
+# HIGH-SPEED CACHED PREPROCESSING
 # ---------------------------------------------------------
 @st.cache_data(show_spinner="⚡ Processing Lab Operations Data...", max_entries=5)
 def load_and_preprocess_data(file):
     if file.name.endswith('.csv'):
-        df = pd.read_csv(file)
+        df = pd.read_csv(file, engine='c')
     else:
-        df = pd.read_excel(file)
+        try:
+            # Fast calamine engine if installed, fallback to default
+            df = pd.read_excel(file, engine='calamine')
+        except Exception:
+            df = pd.read_excel(file)
 
     folder_date_col = 'FOLDER_RECEIVE_DATE'
     ack_date_col = 'ACKNOWLEDGEMENT_DATE'
     commit_date_col = 'FOLDER_COMMITTED_DATE'
     sample_rec_date_col = 'SAMPLE_RECEIVE_DATE'
 
+    # Fast datetime parsing
     for col in [folder_date_col, ack_date_col, commit_date_col, sample_rec_date_col]:
         if col in df.columns:
-            s = df[col].fillna("").astype(str).str.replace('T', ' ', regex=False).str.split('.').str[0]
-            df[col] = pd.to_datetime(s, errors='coerce')
+            df[col] = pd.to_datetime(df[col], errors='coerce')
 
     if commit_date_col in df.columns:
         df['COMMIT_DATE_ONLY'] = df[commit_date_col].dt.date
 
+    # Fast vectorized timedelta calculations
     if commit_date_col in df.columns and folder_date_col in df.columns:
         df['commit_gap_hours'] = (df[commit_date_col] - df[folder_date_col]).dt.total_seconds() / 3600.0
         df['is_commit_3h'] = df['commit_gap_hours'] <= 3.0
@@ -191,19 +196,19 @@ def load_and_preprocess_data(file):
 
     lab_type_col = 'TEST_GROUP'
     if lab_type_col in df.columns:
-        lab_str = df[lab_type_col].fillna("").astype(str).str.lower()
-        df['has_chem'] = lab_str.str.contains('chem')
-        df['has_phys'] = lab_str.str.contains('phys')
+        lab_series = df[lab_type_col].astype(str).str.lower()
+        df['has_chem'] = lab_series.str.contains('chem', regex=False)
+        df['has_phys'] = lab_series.str.contains('phys', regex=False)
     else:
         df['has_chem'] = False
         df['has_phys'] = False
 
     return df
 
-# Main Title Header
+# Main Title Header (Updated: Cleaned Title)
 st.markdown("""
 <div class="main-header">
-    <h1>⬡ Lab Operations Dashboard & SGS</h1>
+    <h1>Lab Operations Dashboard</h1>
     <p>Real-time SLA tracking, operational commitments, and financial segment analytics</p>
 </div>
 """, unsafe_allow_html=True)
@@ -296,16 +301,17 @@ if uploaded_file is not None:
     filter_service = st.sidebar.multiselect("Service Level Filter", options=sorted(df_filtered[service_col].dropna().astype(str).unique().tolist()) if service_col in df_filtered.columns else [])
     filter_client = st.sidebar.multiselect("Client Filter", options=all_clients_list)
 
-    def apply_ack_eligibility_filter(df_in):
+    @st.cache_data
+    def apply_ack_eligibility_filter(df_in, exclude_buyers_tuple, exclude_hm_tuple, enable_cutoff, cutoff_t):
         df_out = df_in
-        if exclude_buyers and buyer_col in df_out.columns:
-            df_out = df_out[~df_out[buyer_col].isin(exclude_buyers)]
-        if exclude_hm_clients and buyer_col in df_out.columns and bill_client_col in df_out.columns:
-            hm_mask = (df_out[buyer_col].astype(str).str.upper().str.contains("H&M")) & (df_out[bill_client_col].isin(exclude_hm_clients))
+        if exclude_buyers_tuple and buyer_col in df_out.columns:
+            df_out = df_out[~df_out[buyer_col].isin(exclude_buyers_tuple)]
+        if exclude_hm_tuple and buyer_col in df_out.columns and bill_client_col in df_out.columns:
+            hm_mask = (df_out[buyer_col].astype(str).str.upper().str.contains("H&M", regex=False)) & (df_out[bill_client_col].isin(exclude_hm_tuple))
             df_out = df_out[~hm_mask]
             
-        if enable_time_cutoff and 'sample_rec_time' in df_out.columns:
-            time_mask = df_out['sample_rec_time'].notna() & (df_out['sample_rec_time'] >= ack_cutoff_time)
+        if enable_cutoff and 'sample_rec_time' in df_out.columns:
+            time_mask = df_out['sample_rec_time'].notna() & (df_out['sample_rec_time'] >= cutoff_t)
             df_out = df_out[time_mask]
 
         return df_out
@@ -313,7 +319,13 @@ if uploaded_file is not None:
     def render_dashboard(df, date_label):
         st.markdown(f"<div class='section-title'>📅 Active Operating View: <span style='color:#ea580c;'>{date_label}</span></div>", unsafe_allow_html=True)
 
-        ack_filtered_df = apply_ack_eligibility_filter(df)
+        ack_filtered_df = apply_ack_eligibility_filter(
+            df, 
+            tuple(exclude_buyers), 
+            tuple(exclude_hm_clients), 
+            enable_time_cutoff, 
+            ack_cutoff_time
+        )
 
         finance_mask = pd.Series(True, index=df.index)
         if filter_buyer and buyer_col in df.columns:
