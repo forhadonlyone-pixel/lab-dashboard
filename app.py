@@ -5,7 +5,7 @@ import datetime
 
 # 1. Page Configuration
 st.set_page_config(
-    page_title="Lab Operations Dashboard",
+    page_title="Lab Operations Dashboard", # ✅ UPDATED
     page_icon="🔬",
     layout="wide",
     initial_sidebar_state="expanded"
