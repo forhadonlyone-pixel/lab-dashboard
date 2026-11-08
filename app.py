@@ -97,18 +97,6 @@ st.markdown("""
         color: #ea580c !important;
     }
 
-    .sub-badge-orange {
-        display: inline-block;
-        background: rgba(234, 88, 12, 0.12);
-        color: #c2410c;
-        border: 1px solid rgba(234, 88, 12, 0.3);
-        padding: 3px 10px;
-        border-radius: 4px;
-        font-size: 0.82rem;
-        font-weight: 600;
-        margin-top: 6px;
-    }
-
     /* Section Subheaders */
     .section-title {
         font-size: 1.25rem;
@@ -136,10 +124,6 @@ st.markdown("""
         .kpi-title {
             color: #94a3b8 !important;
         }
-        .sub-badge-orange {
-            background: rgba(255, 107, 0, 0.18) !important;
-            color: #ff8c00 !important;
-        }
         .kpi-percentage {
             color: #ff8c00 !important;
         }
@@ -156,7 +140,6 @@ def load_and_preprocess_data(file):
         df = pd.read_csv(file, engine='c')
     else:
         try:
-            # Fast calamine engine if installed, fallback to default
             df = pd.read_excel(file, engine='calamine')
         except Exception:
             df = pd.read_excel(file)
@@ -189,23 +172,20 @@ def load_and_preprocess_data(file):
         df['ack_gap_hours'] = np.nan
         df['is_ack_2h'] = False
 
+    # Check if folder has acknowledgement regardless of time
+    if ack_date_col in df.columns:
+        df['has_ack'] = df[ack_date_col].notna()
+    else:
+        df['has_ack'] = False
+
     if sample_rec_date_col in df.columns:
         df['sample_rec_time'] = df[sample_rec_date_col].dt.time
     else:
         df['sample_rec_time'] = None
 
-    lab_type_col = 'TEST_GROUP'
-    if lab_type_col in df.columns:
-        lab_series = df[lab_type_col].astype(str).str.lower()
-        df['has_chem'] = lab_series.str.contains('chem', regex=False)
-        df['has_phys'] = lab_series.str.contains('phys', regex=False)
-    else:
-        df['has_chem'] = False
-        df['has_phys'] = False
-
     return df
 
-# Main Title Header (Updated: Cleaned Title)
+# Main Title Header
 st.markdown("""
 <div class="main-header">
     <h1>Lab Operations Dashboard</h1>
@@ -277,24 +257,22 @@ if uploaded_file is not None:
     else:
         df_active_view = df_filtered
 
+    # 1. ACK SLA TIME CUTOFF SLICER (UNCHECKED BY DEFAULT)
     st.sidebar.markdown("---")
     st.sidebar.markdown("### ⏰ ACK SLA Time Cutoff Slicer")
-    enable_time_cutoff = st.sidebar.checkbox("Enable ACK Time Cutoff Filter", value=True)
+    enable_time_cutoff = st.sidebar.checkbox("Enable ACK Time Cutoff Filter", value=False)
     ack_cutoff_time = st.sidebar.time_input("Exclude ACK SLA Before Time:", value=datetime.time(21, 0))
 
+    # 2. ACK EXCLUSIONS (EMPTY BY DEFAULT)
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 🚫 ACK Exclusions")
     all_buyers_list = sorted(df_filtered[buyer_col].dropna().astype(str).unique().tolist()) if buyer_col in df_filtered.columns else []
-    default_excluded_buyers = [b for b in all_buyers_list if 'siplec' in str(b).lower()]
-    exclude_buyers = st.sidebar.multiselect("Exclude Buyers (Entirely)", options=all_buyers_list, default=default_excluded_buyers)
+    exclude_buyers = st.sidebar.multiselect("Exclude Buyers (Entirely)", options=all_buyers_list, default=[])
 
-    hm_clients_default = [
-        "FAKIR KNITWEARS LTD.", "FAKIR APPARELS LTD", "FLAMINGO FASHIONS LTD",
-        "KC LINGERIE LTD. (KNIT CONCERN GROUP)", "SAIHAM KNIT COMPOSITE LTD"
-    ]
     all_clients_list = sorted(df_filtered[bill_client_col].dropna().astype(str).unique().tolist()) if bill_client_col in df_filtered.columns else []
-    exclude_hm_clients = st.sidebar.multiselect("H&M Non-Eligible Clients", options=all_clients_list, default=[c for c in hm_clients_default if c in all_clients_list])
+    exclude_hm_clients = st.sidebar.multiselect("H&M Non-Eligible Clients", options=all_clients_list, default=[])
 
+    # 3. FINANCIAL INTERSECTS
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 💰 Financial Intersects")
     filter_buyer = st.sidebar.multiselect("Buyer Filter", options=all_buyers_list)
@@ -386,19 +364,20 @@ if uploaded_file is not None:
             </div>
             """, unsafe_allow_html=True)
 
-        # C5: Sample Breakdown
+        # C5: Total ACK (No Time Barrier)
         with c5:
-            if sample_id_col in df.columns:
-                chem_only = df[df['has_chem'] & ~df['has_phys']][sample_id_col].nunique()
-                phys_only = df[df['has_phys'] & ~df['has_chem']][sample_id_col].nunique()
-                shared_count = df[df['has_chem'] & df['has_phys']][sample_id_col].nunique()
+            if sample_id_col in ack_filtered_df.columns:
+                total_eligible_samples = ack_filtered_df[sample_id_col].nunique()
+                total_ack_count = ack_filtered_df[ack_filtered_df['has_ack']][sample_id_col].nunique()
+                pct_ack_total = (total_ack_count / total_eligible_samples * 100) if total_eligible_samples > 0 else 0
             else:
-                chem_only = phys_only = shared_count = 0
+                total_ack_count = 0
+                pct_ack_total = 0
+                
             st.markdown(f"""
             <div class="kpi-card kpi-card-orange">
-                <div class="kpi-title">05. Sample Breakdown</div>
-                <div class="kpi-value" style="font-size: 1.25rem;">Chem: {chem_only} | Phys: {phys_only}</div>
-                <div class="sub-badge-orange">Shared: {shared_count} Samples</div>
+                <div class="kpi-title">05. Total ACK (No Time Barrier)</div>
+                <div class="kpi-value">{total_ack_count:,}<span class="kpi-percentage">({pct_ack_total:.1f}%)</span></div>
             </div>
             """, unsafe_allow_html=True)
 
