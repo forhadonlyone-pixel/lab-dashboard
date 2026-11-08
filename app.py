@@ -293,71 +293,76 @@ if uploaded_file is not None:
     else:
         df_active_view = df_filtered
 
-    # Time Slicer & Exclusions (Clean default state)
+    # 1. OPTIONAL ACK SLICER
     st.sidebar.markdown("---")
     st.sidebar.markdown("### ⏰ Optional ACK Slicers")
     enable_time_cutoff = st.sidebar.checkbox("Enable Cutoff Filter", value=False)
     ack_cutoff_time = st.sidebar.time_input("Ignore Before Time:", value=datetime.time(21, 0))
 
+    # 2. EXCLUSIONS (APPLIES GLOBALLY ACROSS ALL CARDS & METRICS)
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 🚫 Exclusions")
     all_buyers_list = sorted(df_filtered[buyer_col].dropna().astype(str).unique().tolist()) if buyer_col in df_filtered.columns else []
     exclude_buyers = st.sidebar.multiselect("Exclude Buyers", options=all_buyers_list, default=[])
 
     all_clients_list = sorted(df_filtered[bill_client_col].dropna().astype(str).unique().tolist()) if bill_client_col in df_filtered.columns else []
-    exclude_hm_clients = st.sidebar.multiselect("Exclude Specific Clients", options=all_clients_list, default=[])
+    exclude_specific_clients = st.sidebar.multiselect("Exclude Specific Clients", options=all_clients_list, default=[])
 
+    # 3. FINANCIAL SLICERS
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 💰 Financial Slicers")
     filter_buyer = st.sidebar.multiselect("Buyer Filter", options=all_buyers_list)
     filter_service = st.sidebar.multiselect("Service Level Filter", options=sorted(df_filtered[service_col].dropna().astype(str).unique().tolist()) if service_col in df_filtered.columns else [])
     filter_client = st.sidebar.multiselect("Client Filter", options=all_clients_list)
 
+    # Global Exclusions Filter
     @st.cache_data
-    def apply_ack_eligibility_filter(df_in, exclude_buyers_tuple, exclude_hm_tuple, enable_cutoff, cutoff_t):
+    def apply_base_exclusions(df_in, exclude_buyers_tuple, exclude_clients_tuple):
         df_out = df_in
         if exclude_buyers_tuple and buyer_col in df_out.columns:
             df_out = df_out[~df_out[buyer_col].isin(exclude_buyers_tuple)]
-        if exclude_hm_tuple and buyer_col in df_out.columns and bill_client_col in df_out.columns:
-            hm_mask = (df_out[buyer_col].astype(str).str.upper().str.contains("H&M", regex=False)) & (df_out[bill_client_col].isin(exclude_hm_tuple))
-            df_out = df_out[~hm_mask]
-            
+        if exclude_clients_tuple and bill_client_col in df_out.columns:
+            df_out = df_out[~df_out[bill_client_col].isin(exclude_clients_tuple)]
+        return df_out
+
+    # ACK Time Cutoff Filter
+    @st.cache_data
+    def apply_ack_time_cutoff(df_in, enable_cutoff, cutoff_t):
+        df_out = df_in
         if enable_cutoff and 'sample_rec_time' in df_out.columns:
             time_mask = df_out['sample_rec_time'].notna() & (df_out['sample_rec_time'] >= cutoff_t)
             df_out = df_out[time_mask]
-
         return df_out
 
     def render_dashboard(df, date_label):
         st.markdown(f"<div class='section-title'>📊 Operational Performance Overview: <span style='color:#ea580c;'>{date_label}</span></div>", unsafe_allow_html=True)
 
-        ack_filtered_df = apply_ack_eligibility_filter(
-            df, 
-            tuple(exclude_buyers), 
-            tuple(exclude_hm_clients), 
-            enable_time_cutoff, 
-            ack_cutoff_time
-        )
+        # Apply base exclusions across ALL operational cards & counts
+        df_eligible = apply_base_exclusions(df, tuple(exclude_buyers), tuple(exclude_specific_clients))
 
-        finance_mask = pd.Series(True, index=df.index)
-        if filter_buyer and buyer_col in df.columns:
-            finance_mask &= df[buyer_col].isin(filter_buyer)
-        if filter_service and service_col in df.columns:
-            finance_mask &= df[service_col].isin(filter_service)
-        if filter_client and bill_client_col in df.columns:
-            finance_mask &= df[bill_client_col].isin(filter_client)
+        # Apply optional ACK time cutoff for ACK-specific calculations
+        ack_filtered_df = apply_ack_time_cutoff(df_eligible, enable_time_cutoff, ack_cutoff_time)
 
-        finance_df = df[finance_mask]
+        # Financial Cross-Filters
+        finance_mask = pd.Series(True, index=df_eligible.index)
+        if filter_buyer and buyer_col in df_eligible.columns:
+            finance_mask &= df_eligible[buyer_col].isin(filter_buyer)
+        if filter_service and service_col in df_eligible.columns:
+            finance_mask &= df_eligible[service_col].isin(filter_service)
+        if filter_client and bill_client_col in df_eligible.columns:
+            finance_mask &= df_eligible[bill_client_col].isin(filter_client)
+
+        finance_df = df_eligible[finance_mask]
 
         # 6 KPI CARDS
         c1, c2, c3 = st.columns(3)
         c4, c5, c6 = st.columns(3)
 
-        # C1: Commit SLA
+        # C1: Commit SLA (Now accurately recalculated on excluded base)
         with c1:
-            total_samples = df[sample_id_col].nunique() if sample_id_col in df.columns else 0
-            commit_under_3 = df[df['is_commit_3h']][sample_id_col].nunique() if sample_id_col in df.columns else 0
-            pct_c1 = (commit_under_3 / total_samples * 100) if total_samples > 0 else 0
+            total_eligible_samples = df_eligible[sample_id_col].nunique() if sample_id_col in df_eligible.columns else 0
+            commit_under_3 = df_eligible[df_eligible['is_commit_3h']][sample_id_col].nunique() if sample_id_col in df_eligible.columns else 0
+            pct_c1 = (commit_under_3 / total_eligible_samples * 100) if total_eligible_samples > 0 else 0
             st.markdown(f"""
             <div class="kpi-card kpi-card-orange">
                 <div class="kpi-header-row"><span class="kpi-title">01. Commits ≤ 3h SLA</span></div>
@@ -368,7 +373,7 @@ if uploaded_file is not None:
             </div>
             """, unsafe_allow_html=True)
 
-        # C2: ACK SLA
+        # C2: ACK SLA (Calculated on excluded base with time cutoff if enabled)
         with c2:
             ack_total_samples = ack_filtered_df[sample_id_col].nunique() if sample_id_col in ack_filtered_df.columns else 0
             ack_under_2 = ack_filtered_df[ack_filtered_df['is_ack_2h']][sample_id_col].nunique() if sample_id_col in ack_filtered_df.columns else 0
@@ -385,7 +390,7 @@ if uploaded_file is not None:
 
         # C3: Active Staff
         with c3:
-            active_staff = df[df[comm_by_col].notna()][comm_by_col].nunique() if comm_by_col in df.columns else 0
+            active_staff = df_eligible[df_eligible[comm_by_col].notna()][comm_by_col].nunique() if comm_by_col in df_eligible.columns else 0
             st.markdown(f"""
             <div class="kpi-card kpi-card-grey">
                 <div class="kpi-header-row"><span class="kpi-title">03. Active Team</span></div>
@@ -400,7 +405,7 @@ if uploaded_file is not None:
 
         # C4: Top Buyer
         with c4:
-            top_buyer = df.groupby(buyer_col)[sample_id_col].nunique().idxmax() if (buyer_col in df.columns and not df.empty) else "N/A"
+            top_buyer = df_eligible.groupby(buyer_col)[sample_id_col].nunique().idxmax() if (buyer_col in df_eligible.columns and not df_eligible.empty) else "N/A"
             st.markdown(f"""
             <div class="kpi-card kpi-card-grey">
                 <div class="kpi-header-row"><span class="kpi-title">04. Top Buyer</span></div>
@@ -408,12 +413,11 @@ if uploaded_file is not None:
             </div>
             """, unsafe_allow_html=True)
 
-        # C5: Total ACK (No Time Barrier)
+        # C5: Total ACK (Overall)
         with c5:
             if sample_id_col in ack_filtered_df.columns:
-                total_eligible_samples = ack_filtered_df[sample_id_col].nunique()
                 total_ack_count = ack_filtered_df[ack_filtered_df['has_ack']][sample_id_col].nunique()
-                pct_ack_total = (total_ack_count / total_eligible_samples * 100) if total_eligible_samples > 0 else 0
+                pct_ack_total = (total_ack_count / ack_total_samples * 100) if ack_total_samples > 0 else 0
             else:
                 total_ack_count = 0
                 pct_ack_total = 0
@@ -428,28 +432,28 @@ if uploaded_file is not None:
             </div>
             """, unsafe_allow_html=True)
 
-        # C6: Unique Folders
+        # C6: Total Committed Samples (Decreases when exclusions applied)
         with c6:
-            unique_folders = df[folder_id_col].nunique() if folder_id_col in df.columns else 0
+            total_committed_samples = df_eligible[sample_id_col].nunique() if sample_id_col in df_eligible.columns else 0
             st.markdown(f"""
             <div class="kpi-card kpi-card-grey">
-                <div class="kpi-header-row"><span class="kpi-title">06. Actioned Volume</span></div>
+                <div class="kpi-header-row"><span class="kpi-title">06. Total Committed Samples</span></div>
                 <div class="kpi-value-row">
-                    <span class="kpi-value">{unique_folders:,}</span>
-                    <span style="font-size:1.1rem; font-weight:600; color:#64748b;">Folders</span>
+                    <span class="kpi-value">{total_committed_samples:,}</span>
+                    <span style="font-size:1.1rem; font-weight:600; color:#64748b;">Samples</span>
                 </div>
             </div>
             """, unsafe_allow_html=True)
 
         # STAFF PERFORMANCE MATRIX
         st.markdown("<div class='section-title'>👤 Staff SLA Compliance & Output Matrix</div>", unsafe_allow_html=True)
-        if comm_by_col in df.columns and folder_id_col in df.columns:
-            comm_grp = df.groupby(comm_by_col).agg(
+        if comm_by_col in df_eligible.columns and folder_id_col in df_eligible.columns:
+            comm_grp = df_eligible.groupby(comm_by_col).agg(
                 Total_Folders=(folder_id_col, 'nunique'),
                 Buyers=(buyer_col, lambda s: ", ".join(s.dropna().unique()))
             ).reset_index()
 
-            commit_3h_grp = df[df['is_commit_3h']].groupby(comm_by_col)[folder_id_col].nunique().reset_index()
+            commit_3h_grp = df_eligible[df_eligible['is_commit_3h']].groupby(comm_by_col)[folder_id_col].nunique().reset_index()
             commit_3h_grp.columns = [comm_by_col, 'Commit_3h']
 
             summary_matrix = pd.merge(comm_grp, commit_3h_grp, on=comm_by_col, how='left').fillna({'Commit_3h': 0})
@@ -555,7 +559,7 @@ if uploaded_file is not None:
 
             final_table = ack_status_df[display_cols].copy()
 
-            # Summary badges directly above the table for immediate clarity
+            # Summary badges directly above the table
             c_ack_ok = (final_table['ACK < 2 hours'] == 'Yes').sum()
             c_com_ok = (final_table['Commit < 3 hours'] == 'Yes').sum()
             c_missing = (final_table['ACK Missing'] == 'Yes').sum()
@@ -568,7 +572,6 @@ if uploaded_file is not None:
                 </div>
             """, unsafe_allow_html=True)
 
-            # Highlighting logic: Distinct & readable cell stylings
             def highlight_status_cells(val):
                 if val == 'Yes':
                     return 'background-color: rgba(34, 197, 94, 0.18); color: #15803d; font-weight: 700;'
