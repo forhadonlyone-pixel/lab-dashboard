@@ -257,13 +257,13 @@ if uploaded_file is not None:
     else:
         df_active_view = df_filtered
 
-    # 1. ACK SLA TIME CUTOFF SLICER (UNCHECKED BY DEFAULT)
+    # ACK SLA TIME CUTOFF SLICER (UNCHECKED BY DEFAULT)
     st.sidebar.markdown("---")
     st.sidebar.markdown("### ⏰ ACK SLA Time Cutoff Slicer")
     enable_time_cutoff = st.sidebar.checkbox("Enable ACK Time Cutoff Filter", value=False)
     ack_cutoff_time = st.sidebar.time_input("Exclude ACK SLA Before Time:", value=datetime.time(21, 0))
 
-    # 2. ACK EXCLUSIONS (EMPTY BY DEFAULT)
+    # ACK EXCLUSIONS (EMPTY BY DEFAULT)
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 🚫 ACK Exclusions")
     all_buyers_list = sorted(df_filtered[buyer_col].dropna().astype(str).unique().tolist()) if buyer_col in df_filtered.columns else []
@@ -272,7 +272,7 @@ if uploaded_file is not None:
     all_clients_list = sorted(df_filtered[bill_client_col].dropna().astype(str).unique().tolist()) if bill_client_col in df_filtered.columns else []
     exclude_hm_clients = st.sidebar.multiselect("H&M Non-Eligible Clients", options=all_clients_list, default=[])
 
-    # 3. FINANCIAL INTERSECTS
+    # FINANCIAL INTERSECTS
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 💰 Financial Intersects")
     filter_buyer = st.sidebar.multiselect("Buyer Filter", options=all_buyers_list)
@@ -385,183 +385,4 @@ if uploaded_file is not None:
         with c6:
             unique_folders = df[folder_id_col].nunique() if folder_id_col in df.columns else 0
             st.markdown(f"""
-            <div class="kpi-card kpi-card-grey">
-                <div class="kpi-title">06. Unique Folders Committed</div>
-                <div class="kpi-value">{unique_folders:,} <span style="font-size:1.1rem; font-weight:500;">Folders</span></div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        # MATRIX
-        st.markdown("<div class='section-title'>👤 Staff Performance & SLA Compliance Matrix</div>", unsafe_allow_html=True)
-        if comm_by_col in df.columns and folder_id_col in df.columns:
-            comm_grp = df.groupby(comm_by_col).agg(
-                Total_Folders=(folder_id_col, 'nunique'),
-                Buyers=(buyer_col, lambda s: ", ".join(s.dropna().unique()))
-            ).reset_index()
-
-            commit_3h_grp = df[df['is_commit_3h']].groupby(comm_by_col)[folder_id_col].nunique().reset_index()
-            commit_3h_grp.columns = [comm_by_col, 'Commit_3h']
-
-            summary_matrix = pd.merge(comm_grp, commit_3h_grp, on=comm_by_col, how='left').fillna({'Commit_3h': 0})
-
-            if ack_by_col in ack_filtered_df.columns:
-                ack_grp = ack_filtered_df[ack_filtered_df['is_ack_2h']].groupby(ack_by_col)[folder_id_col].nunique().reset_index()
-                ack_grp.columns = [comm_by_col, "Folders Acknowledged (≤ 2h)"]
-                summary_matrix = pd.merge(summary_matrix, ack_grp, on=comm_by_col, how='left').fillna({"Folders Acknowledged (≤ 2h)": 0})
-            else:
-                summary_matrix["Folders Acknowledged (≤ 2h)"] = 0
-
-            summary_matrix["Commit SLA Compliance"] = (summary_matrix["Commit_3h"] / summary_matrix["Total_Folders"] * 100).round(1).astype(str) + "%"
-            
-            summary_matrix.columns = [
-                "Person Name", "Total Folders Actioned", "Associated Buyer(s)", 
-                "Folders Committed (≤ 3h)", "Folders Acknowledged (≤ 2h)", "Commit SLA Compliance"
-            ]
-            
-            ordered_cols = ["Person Name", "Associated Buyer(s)", "Total Folders Actioned", "Folders Committed (≤ 3h)", "Commit SLA Compliance", "Folders Acknowledged (≤ 2h)"]
-            st.dataframe(summary_matrix[ordered_cols], use_container_width=True, hide_index=True)
-
-        # FINANCIAL ANALYSIS
-        st.markdown("<div class='section-title'>💰 Financial Charge Segment Analysis</div>", unsafe_allow_html=True)
-
-        if charges_col in finance_df.columns and folder_id_col in finance_df.columns:
-            fin_cols = [folder_id_col, charges_col]
-            if currency_col in finance_df.columns:
-                fin_cols.append(currency_col)
-            if ex_rate_col in finance_df.columns:
-                fin_cols.append(ex_rate_col)
-
-            unique_folder_charges = finance_df[fin_cols].drop_duplicates(subset=[folder_id_col])
-            charges_vec = pd.to_numeric(unique_folder_charges[charges_col], errors='coerce').fillna(0)
-            
-            if ex_rate_col in unique_folder_charges.columns:
-                ex_vec = pd.to_numeric(unique_folder_charges[ex_rate_col], errors='coerce').fillna(1.0).replace(0, 1.0)
-            else:
-                ex_vec = pd.Series(1.0, index=unique_folder_charges.index)
-
-            if currency_col in unique_folder_charges.columns:
-                curr_vec = unique_folder_charges[currency_col].fillna("BDT").astype(str).str.upper()
-            else:
-                curr_vec = pd.Series("BDT", index=unique_folder_charges.index)
-
-            is_bdt = (curr_vec == 'BDT')
-            charges_usd = np.where(is_bdt, charges_vec / ex_vec, charges_vec)
-            charges_bdt = np.where(~is_bdt, charges_vec * ex_vec, charges_vec)
-
-            total_usd = charges_usd.sum()
-            total_bdt = charges_bdt.sum()
-
-            f1, f2 = st.columns(2)
-            with f1:
-                st.markdown(f"""
-                <div class="kpi-card" style="border-left: 5px solid #ea580c;">
-                    <div class="kpi-title">Total Financial Revenue (USD)</div>
-                    <div class="kpi-value" style="color:#ea580c;">${total_usd:,.2f}</div>
-                </div>
-                """, unsafe_allow_html=True)
-            with f2:
-                st.markdown(f"""
-                <div class="kpi-card" style="border-left: 5px solid #64748b;">
-                    <div class="kpi-title">Total Financial Revenue (BDT)</div>
-                    <div class="kpi-value">৳{total_bdt:,.2f}</div>
-                </div>
-                """, unsafe_allow_html=True)
-
-        # SLA BREACH TABLES
-        st.markdown("<div class='section-title'>📋 Exception & SLA Breach Logs</div>", unsafe_allow_html=True)
-
-        def apply_orange_highlight(val):
-            return 'background-color: #ea580c; color: white; font-weight: bold;'
-
-        # 07. Missing Folder Acknowledgements
-        st.markdown("##### 🚨 Missing Folder Acknowledgements")
-        missing_ack_df = ack_filtered_df[ack_filtered_df[ack_date_col].isna()] if ack_date_col in ack_filtered_df.columns else ack_filtered_df
-        available_cols = [c for c in [folder_id_col, buyer_col, bill_client_col, comm_by_col] if c in missing_ack_df.columns]
-        missing_ack_unique = missing_ack_df[available_cols].drop_duplicates()
-        
-        if not missing_ack_unique.empty:
-            st.dataframe(missing_ack_unique, hide_index=True, use_container_width=True)
-        else:
-            st.success("Zero missing folder acknowledgements for eligible buyers/clients/times.")
-
-        # 08. Commits Breaching SLA
-        st.markdown("##### 🟠 Commits Breaching SLA (> 3 Hours Target)")
-        if 'commit_gap_hours' in df.columns and folder_id_col in df.columns and buyer_col in df.columns:
-            breach_3h = df[df['commit_gap_hours'] > 3][[folder_id_col, buyer_col, comm_by_col]].drop_duplicates()
-            if not breach_3h.empty:
-                st.dataframe(breach_3h.style.map(apply_orange_highlight, subset=[folder_id_col, buyer_col]), use_container_width=True, hide_index=True)
-            else:
-                st.success("Zero folders breached the 3-hour commitment SLA.")
-
-        # 09. Acknowledgement Comprehensive Status & SLA Breach Table
-        st.markdown("##### 🟠 Acknowledgements Breaching SLA (> 2 Hours Target)")
-        
-        if folder_id_col in ack_filtered_df.columns:
-            cols_needed = [folder_id_col]
-            if buyer_col in ack_filtered_df.columns: cols_needed.append(buyer_col)
-            if bill_client_col in ack_filtered_df.columns: cols_needed.append(bill_client_col)
-            if ack_by_col in ack_filtered_df.columns: cols_needed.append(ack_by_col)
-            if comm_by_col in ack_filtered_df.columns and comm_by_col not in cols_needed: cols_needed.append(comm_by_col)
-            if 'ack_gap_hours' in ack_filtered_df.columns: cols_needed.append('ack_gap_hours')
-            if ack_date_col in ack_filtered_df.columns: cols_needed.append(ack_date_col)
-
-            ack_status_df = ack_filtered_df[cols_needed].drop_duplicates(subset=[folder_id_col]).copy()
-
-            # Determine concern person
-            if ack_by_col in ack_status_df.columns and comm_by_col in ack_status_df.columns:
-                ack_status_df['Concern Person'] = ack_status_df[ack_by_col].fillna(ack_status_df[comm_by_col]).fillna("Unassigned")
-            elif ack_by_col in ack_status_df.columns:
-                ack_status_df['Concern Person'] = ack_status_df[ack_by_col].fillna("Unassigned")
-            elif comm_by_col in ack_status_df.columns:
-                ack_status_df['Concern Person'] = ack_status_df[comm_by_col].fillna("Unassigned")
-            else:
-                ack_status_df['Concern Person'] = "Unassigned"
-
-            # Check status flags
-            is_missing = ack_status_df[ack_date_col].isna() if ack_date_col in ack_status_df.columns else pd.Series(False, index=ack_status_df.index)
-            is_under_2 = (ack_status_df['ack_gap_hours'] <= 2.0) & (~is_missing)
-            is_over_2 = (ack_status_df['ack_gap_hours'] > 2.0) & (~is_missing)
-
-            ack_status_df['ACK < 2 hours'] = np.where(is_under_2, "Yes", "No")
-            ack_status_df['ACK > 2 hours'] = np.where(is_over_2, "Yes", "No")
-            ack_status_df['ACK Missing'] = np.where(is_missing, "Yes", "No")
-            
-            if 'ack_gap_hours' in ack_status_df.columns:
-                ack_status_df['Calculated Gap (Hours)'] = np.where(
-                    is_missing, 
-                    "Missing", 
-                    ack_status_df['ack_gap_hours'].round(2).astype(str) + " hrs"
-                )
-
-            # Columns to display
-            display_cols = [folder_id_col]
-            if buyer_col in ack_status_df.columns: display_cols.append(buyer_col)
-            if bill_client_col in ack_status_df.columns: display_cols.append(bill_client_col)
-            display_cols.extend(['Concern Person', 'ACK < 2 hours', 'ACK > 2 hours', 'ACK Missing'])
-            if 'Calculated Gap (Hours)' in ack_status_df.columns:
-                display_cols.append('Calculated Gap (Hours)')
-
-            final_table = ack_status_df[display_cols].copy()
-
-            # Highlighting breach (> 2 hrs) and missing rows
-            def highlight_ack_status(row):
-                styles = [''] * len(row)
-                if row.get('ACK > 2 hours') == 'Yes':
-                    return ['background-color: #ea580c; color: white; font-weight: bold;' if col in ['ACK > 2 hours', folder_id_col] else '' for col in row.index]
-                elif row.get('ACK Missing') == 'Yes':
-                    return ['background-color: #64748b; color: white;' if col in ['ACK Missing', folder_id_col] else '' for col in row.index]
-                return styles
-
-            if not final_table.empty:
-                st.dataframe(
-                    final_table.style.apply(highlight_ack_status, axis=1), 
-                    use_container_width=True, 
-                    hide_index=True
-                )
-            else:
-                st.info("No folder records available for the selected view.")
-
-    render_dashboard(df_active_view, selected_date_card)
-
-else:
-    st.info("👋 Upload your operational data file above to generate the executive dashboard.")
+            <div class="kpi-card kpi
