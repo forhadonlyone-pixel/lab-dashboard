@@ -473,6 +473,7 @@ if uploaded_file is not None:
         def apply_orange_highlight(val):
             return 'background-color: #ea580c; color: white; font-weight: bold;'
 
+        # 07. Missing Folder Acknowledgements
         st.markdown("##### 🚨 Missing Folder Acknowledgements")
         missing_ack_df = ack_filtered_df[ack_filtered_df[ack_date_col].isna()] if ack_date_col in ack_filtered_df.columns else ack_filtered_df
         available_cols = [c for c in [folder_id_col, buyer_col, bill_client_col, comm_by_col] if c in missing_ack_df.columns]
@@ -483,6 +484,7 @@ if uploaded_file is not None:
         else:
             st.success("Zero missing folder acknowledgements for eligible buyers/clients/times.")
 
+        # 08. Commits Breaching SLA
         st.markdown("##### 🟠 Commits Breaching SLA (> 3 Hours Target)")
         if 'commit_gap_hours' in df.columns and folder_id_col in df.columns and buyer_col in df.columns:
             breach_3h = df[df['commit_gap_hours'] > 3][[folder_id_col, buyer_col, comm_by_col]].drop_duplicates()
@@ -491,13 +493,73 @@ if uploaded_file is not None:
             else:
                 st.success("Zero folders breached the 3-hour commitment SLA.")
 
+        # 09. Acknowledgement Comprehensive Status & SLA Breach Table
         st.markdown("##### 🟠 Acknowledgements Breaching SLA (> 2 Hours Target)")
-        if 'ack_gap_hours' in ack_filtered_df.columns and folder_id_col in ack_filtered_df.columns and buyer_col in ack_filtered_df.columns:
-            breach_2h = ack_filtered_df[ack_filtered_df['ack_gap_hours'] > 2][[folder_id_col, buyer_col, ack_by_col if ack_by_col in ack_filtered_df.columns else buyer_col]].drop_duplicates()
-            if not breach_2h.empty:
-                st.dataframe(breach_2h.style.map(apply_orange_highlight, subset=[folder_id_col, buyer_col]), use_container_width=True, hide_index=True)
+        
+        if folder_id_col in ack_filtered_df.columns:
+            cols_needed = [folder_id_col]
+            if buyer_col in ack_filtered_df.columns: cols_needed.append(buyer_col)
+            if bill_client_col in ack_filtered_df.columns: cols_needed.append(bill_client_col)
+            if ack_by_col in ack_filtered_df.columns: cols_needed.append(ack_by_col)
+            if comm_by_col in ack_filtered_df.columns and comm_by_col not in cols_needed: cols_needed.append(comm_by_col)
+            if 'ack_gap_hours' in ack_filtered_df.columns: cols_needed.append('ack_gap_hours')
+            if ack_date_col in ack_filtered_df.columns: cols_needed.append(ack_date_col)
+
+            ack_status_df = ack_filtered_df[cols_needed].drop_duplicates(subset=[folder_id_col]).copy()
+
+            # Determine concern person
+            if ack_by_col in ack_status_df.columns and comm_by_col in ack_status_df.columns:
+                ack_status_df['Concern Person'] = ack_status_df[ack_by_col].fillna(ack_status_df[comm_by_col]).fillna("Unassigned")
+            elif ack_by_col in ack_status_df.columns:
+                ack_status_df['Concern Person'] = ack_status_df[ack_by_col].fillna("Unassigned")
+            elif comm_by_col in ack_status_df.columns:
+                ack_status_df['Concern Person'] = ack_status_df[comm_by_col].fillna("Unassigned")
             else:
-                st.success("Zero folders breached the 2-hour acknowledgement SLA.")
+                ack_status_df['Concern Person'] = "Unassigned"
+
+            # Check status flags
+            is_missing = ack_status_df[ack_date_col].isna() if ack_date_col in ack_status_df.columns else pd.Series(False, index=ack_status_df.index)
+            is_under_2 = (ack_status_df['ack_gap_hours'] <= 2.0) & (~is_missing)
+            is_over_2 = (ack_status_df['ack_gap_hours'] > 2.0) & (~is_missing)
+
+            ack_status_df['ACK < 2 hours'] = np.where(is_under_2, "Yes", "No")
+            ack_status_df['ACK > 2 hours'] = np.where(is_over_2, "Yes", "No")
+            ack_status_df['ACK Missing'] = np.where(is_missing, "Yes", "No")
+            
+            if 'ack_gap_hours' in ack_status_df.columns:
+                ack_status_df['Calculated Gap (Hours)'] = np.where(
+                    is_missing, 
+                    "Missing", 
+                    ack_status_df['ack_gap_hours'].round(2).astype(str) + " hrs"
+                )
+
+            # Columns to display
+            display_cols = [folder_id_col]
+            if buyer_col in ack_status_df.columns: display_cols.append(buyer_col)
+            if bill_client_col in ack_status_df.columns: display_cols.append(bill_client_col)
+            display_cols.extend(['Concern Person', 'ACK < 2 hours', 'ACK > 2 hours', 'ACK Missing'])
+            if 'Calculated Gap (Hours)' in ack_status_df.columns:
+                display_cols.append('Calculated Gap (Hours)')
+
+            final_table = ack_status_df[display_cols].copy()
+
+            # Highlighting breach (> 2 hrs) and missing rows
+            def highlight_ack_status(row):
+                styles = [''] * len(row)
+                if row.get('ACK > 2 hours') == 'Yes':
+                    return ['background-color: #ea580c; color: white; font-weight: bold;' if col in ['ACK > 2 hours', folder_id_col] else '' for col in row.index]
+                elif row.get('ACK Missing') == 'Yes':
+                    return ['background-color: #64748b; color: white;' if col in ['ACK Missing', folder_id_col] else '' for col in row.index]
+                return styles
+
+            if not final_table.empty:
+                st.dataframe(
+                    final_table.style.apply(highlight_ack_status, axis=1), 
+                    use_container_width=True, 
+                    hide_index=True
+                )
+            else:
+                st.info("No folder records available for the selected view.")
 
     render_dashboard(df_active_view, selected_date_card)
 
